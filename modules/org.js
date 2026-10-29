@@ -8,6 +8,7 @@
     E.modal({
       title: d ? `Edit ${d.name}` : 'Add department', submit: d ? 'Save' : 'Create department',
       body: html`<div class="form">${E.field({ name: 'name', label: 'Name', value: e.name, required: true })}${E.field({ name: 'color', label: 'Colour', type: 'color', value: e.color })}
+        ${E.field({ name: 'leaderName', label: 'Team leader name', value: e.leaderName, placeholder: 'Who leads this department?', full: true })}
         ${E.field({ name: 'description', label: 'Description', value: e.description, full: true })}
         ${d ? E.field({ name: 'active', label: 'Department is active', type: 'checkbox', value: e.active }) : html`
           ${E.field({ name: 'leaderPassword', label: 'Team Leader portal password', type: 'password', required: true, help: 'At least 8 characters' })}
@@ -44,6 +45,7 @@
         E.mount(el, html`${E.pageHead('Departments', 'Each department has its own Team Leader and Team Member portal, each with its own password.', html`<button class="btn primary" data-act="add">+ Add department</button>`)}
           ${E.table([
             { label: 'Department', render: (d) => html`<b style="color:${d.color}">●</b> <b>${d.name}</b>${d.description ? html`<div class="muted small">${d.description}</div>` : ''}` },
+            { label: 'Team leader', render: (d) => (d.leaderName ? d.leaderName : html`<span class="muted">Not added yet</span>`) },
             { label: 'Active staff', class: 'num', key: 'employeeCount' }, { label: 'Teams', class: 'num', key: 'teamCount' },
             { label: 'Status', render: (d) => E.badge(d.active ? 'active' : 'inactive') },
             { label: '', class: 'right', render: (d) => html`<div class="actions"><button class="btn sm" data-act="pw" data-id="${d.id}">Passwords</button><button class="btn sm" data-act="edit" data-id="${d.id}">Edit</button></div>` },

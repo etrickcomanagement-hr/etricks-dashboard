@@ -279,7 +279,7 @@
     E.mount(app, html`<div class="shell">
       <aside class="side" id="side">
         ${E.logo()}
-        <div class="who"><span class="muted">${roleName}</span><b>${E.user.label}</b></div>
+        <div class="who"><span class="muted">${E.user.name ? E.user.label : roleName}</span><b>${E.user.name || E.user.label}</b></div>
         <button class="btn bell" id="bell" type="button">🔔 Notifications <span class="bell-count" hidden></span></button>
         <nav class="nav">${nav}</nav>
         <div class="spacer"></div>
