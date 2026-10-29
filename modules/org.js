@@ -20,17 +20,26 @@
     });
   }
 
-  // Shared by admin (both passwords) and leader (member password only).
-  function passwordForm(deptId, name, admin) {
+  // Shared by admin (leader and/or member password) and leader (member password only).
+  // only: 'leader' | 'member' | undefined (admin: both fields)
+  function passwordForm(deptId, name, admin, only) {
+    const kind = only || (admin ? 'both' : 'member');
+    const single = kind !== 'both';
+    const title = { leader: `Team leader password - ${name}`, member: `Team member password - ${name}`, both: `Portal passwords - ${name}` }[kind];
+    const what = {
+      leader: 'This is the password the team leader types to open the Team Leader portal of this department.',
+      member: 'This is the department password members type (before their own PIN) to open the Team Member portal.',
+      both: 'Leave a field empty to keep its current password.',
+    }[kind];
     E.modal({
-      title: `Portal passwords - ${name}`, submit: 'Update passwords',
-      body: html`<p class="muted">Leave a field empty to keep the current password. Staff must be told the new password; nobody is signed out automatically.</p>
-        <div class="form">${admin ? E.field({ name: 'leaderPassword', label: 'New Team Leader portal password', type: 'password', full: true, attrs: 'autocomplete="new-password"' }) : ''}
-        ${E.field({ name: 'memberPassword', label: 'New Team Member portal password', type: 'password', full: true, attrs: 'autocomplete="new-password"' })}</div>`,
+      title, submit: 'Save password',
+      body: html`<p class="muted">${what} Tell the new password to the people who need it. Nobody is signed out automatically.</p>
+        <div class="form">${kind !== 'member' ? E.field({ name: 'leaderPassword', label: 'New team leader password', type: 'password', full: true, required: single, help: 'At least 8 characters', attrs: 'autocomplete="new-password"' }) : ''}
+        ${kind !== 'leader' ? E.field({ name: 'memberPassword', label: 'New team member password', type: 'password', full: true, required: single, help: 'At least 8 characters', attrs: 'autocomplete="new-password"' }) : ''}</div>`,
       onSubmit: async (v, { close }) => {
         const body = Object.fromEntries(Object.entries(v).filter(([, x]) => x));
         await E.put(`/api/departments/${deptId}/passwords`, body);
-        E.toast('Password updated'); close();
+        E.toast('Password saved'); close();
       },
     });
   }
@@ -42,18 +51,22 @@
       const load = async () => {
         E.bust('departments');
         const rows = await E.departments();
-        E.mount(el, html`${E.pageHead('Departments', 'Each department has its own Team Leader and Team Member portal, each with its own password.', html`<button class="btn primary" data-act="add">+ Add department</button>`)}
-          ${E.table([
-            { label: 'Department', render: (d) => html`<b style="color:${d.color}">●</b> <b>${d.name}</b>${d.description ? html`<div class="muted small">${d.description}</div>` : ''}` },
-            { label: 'Team leader', render: (d) => (d.leaderName ? d.leaderName : html`<span class="muted">Not added yet</span>`) },
-            { label: 'Active staff', class: 'num', key: 'employeeCount' }, { label: 'Teams', class: 'num', key: 'teamCount' },
-            { label: 'Status', render: (d) => E.badge(d.active ? 'active' : 'inactive') },
-            { label: '', class: 'right', render: (d) => html`<div class="actions"><button class="btn sm" data-act="pw" data-id="${d.id}">Passwords</button><button class="btn sm" data-act="edit" data-id="${d.id}">Edit</button></div>` },
-          ], rows)}`);
+        E.mount(el, html`${E.pageHead('Departments', 'Each department has a Team Leader portal and a Team Member portal, each with its own password. You set and change the team leader password here.', html`<button class="btn primary" data-act="add">+ Add department</button>`)}
+          <div class="grid cols-2">${rows.map((d) => html`<div class="card" style="border-top:3px solid ${d.color}">
+            <h3><span><b style="color:${d.color}">●</b> ${d.name}</span>${E.badge(d.active ? 'active' : 'inactive')}</h3>
+            <div>Team leader: ${d.leaderName ? html`<b>${d.leaderName}</b>` : html`<span class="muted">name not added yet (use Edit)</span>`}</div>
+            <div class="muted small" style="margin-top:2px">${d.employeeCount} active staff · ${d.teamCount} teams${d.description ? ` · ${d.description}` : ''}</div>
+            <div class="row" style="margin-top:14px">
+              <button class="btn primary sm" data-act="pw-leader" data-id="${d.id}">🔑 Team leader password</button>
+              <button class="btn sm" data-act="pw-member" data-id="${d.id}">🔑 Member password</button>
+              <button class="btn sm" data-act="edit" data-id="${d.id}">Edit name / leader</button>
+            </div></div>`)}</div>`);
+        const find = (id) => rows.find((d) => String(d.id) === id);
         E.actions(el, {
           add: () => deptForm(null, load),
-          edit: (id) => deptForm(rows.find((d) => String(d.id) === id), load),
-          pw: (id) => passwordForm(id, rows.find((d) => String(d.id) === id).name, true),
+          edit: (id) => deptForm(find(id), load),
+          'pw-leader': (id) => passwordForm(id, find(id).name, true, 'leader'),
+          'pw-member': (id) => passwordForm(id, find(id).name, true, 'member'),
         });
       };
       await load();

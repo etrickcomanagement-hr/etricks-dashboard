@@ -134,6 +134,8 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: rgba(255, 255, 255, .02); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tablewrap th.right, .tablewrap td.right { position: sticky; right: 0; background: var(--panel); box-shadow: -12px 0 12px -12px rgba(0, 0, 0, .8); }
+.tablewrap th.right { background: var(--panel2); }
 .empty { padding: 34px; text-align: center; color: var(--muted); }
 .actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 
