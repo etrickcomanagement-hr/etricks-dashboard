@@ -330,7 +330,7 @@
       E.modules = mods;
       for (const m of mods.filter((x) => x.enabled && x.ui)) {
         E.currentModule = m.id;
-        await loadScript(m.ui);
+        try { await loadScript(m.ui); } catch { /* this module has no screens (for example sign-in) */ }
       }
       E.currentModule = null;
       app.onclick = null;
