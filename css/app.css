@@ -46,7 +46,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dept-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 16px; }
 .dept-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; position: relative; overflow: hidden; }
 .dept-card::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--c, var(--accent)); }
-.dept-card h3 { font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.dept-card h3 { font-size: 18px; display: flex; align-items: center; gap: 12px; }
+.dept-logo { flex: none; height: 48px; min-width: 48px; padding: 0 11px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: var(--panel2); background: color-mix(in srgb, var(--c, var(--accent)) 12%, var(--panel2)); border: 1px solid var(--line2); border-color: color-mix(in srgb, var(--c, var(--accent)) 40%, var(--line)); }
+.dept-logo img { height: 28px; width: auto; max-width: 92px; object-fit: contain; display: block; }
 .dept-card .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c, var(--accent)); box-shadow: 0 0 12px var(--c, var(--accent)); }
 .dept-card .btns { display: grid; gap: 8px; margin-top: 14px; }
 .dept-card .btn { justify-content: space-between; width: 100%; }

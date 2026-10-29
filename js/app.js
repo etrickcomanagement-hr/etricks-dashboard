@@ -5,6 +5,8 @@
   const { html } = E;
   const app = document.getElementById('app');
   const loadedScripts = new Set();
+  // Marketplaces that have a logo in /img/depts/<slug>.svg; any other department keeps the coloured dot.
+  const LOGOS = new Set(['ebay', 'tiktok', 'etsy', 'walmart', 'shopify', 'amazon']);
   let routeHandler = null;
 
   const loadScript = (src) => new Promise((resolve, reject) => {
@@ -28,7 +30,7 @@
           <p>Choose your department and portal to continue. Team leaders manage attendance, requests, tasks and finance. Team members mark their own attendance and work.</p>
         </div>
         <div class="dept-grid">${depts.map((d) => html`<div class="dept-card" style="--c:${d.color}">
-          <h3><span class="dot"></span>${d.name}</h3>
+          <h3>${LOGOS.has(d.slug) ? html`<span class="dept-logo"><img src="/img/depts/${d.slug}.svg" alt=""></span>` : html`<span class="dot"></span>`}<span>${d.name}</span></h3>
           <div class="btns">
             <button class="btn primary" data-portal="leader" data-dept="${d.id}"><span>Team Leader Portal</span><span>→</span></button>
             <button class="btn" data-portal="member" data-dept="${d.id}"><span>Team Member Portal</span><span>→</span></button>
