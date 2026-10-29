@@ -286,7 +286,7 @@
         <button class="btn" id="logout">Sign out</button>
       </aside>
       <div>
-        <div class="topbar"><button class="btn sm" id="burger" aria-label="Menu">☰</button>${E.logo()}<span class="grow"></span><button class="btn sm bell" id="bell2" type="button" aria-label="Notifications">🔔<span class="bell-count" hidden></span></button></div>
+        <div class="topbar"><button class="btn sm" id="burger" aria-label="Menu">☰</button>${E.logo()}<button class="btn sm bell" id="bell2" type="button" aria-label="Notifications">🔔<span class="bell-count" hidden></span></button></div>
         <div id="pushBanner"></div>
         <main class="main" id="view"></main>
       </div></div>`);
