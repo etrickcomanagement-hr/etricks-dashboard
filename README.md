@@ -8,8 +8,8 @@ There is nothing to build: Vercel serves the files in this repo as they are.
 
 1. In Vercel choose **Add New → Project** and import this repo.
 2. Framework preset: **Other**. Leave Build Command and Output Directory empty. Deploy.
-3. Deploy the backend on Railway first (see its README) and copy its public address, for example `https://etricks-backend-production.up.railway.app`.
-4. Open `vercel.json` in this repo and replace `https://YOUR-BACKEND.up.railway.app` with that address (keep `/api/:path*` after it). Commit. Vercel redeploys.
+3. Deploy the backend first (Railway or Render, see its README) and copy its public address, for example `https://etricks-backend.onrender.com` or `https://etricks-backend-production.up.railway.app`.
+4. Open `vercel.json` in this repo and replace `https://YOUR-BACKEND.up.railway.app` with that address (any host works) (keep `/api/:path*` after it). Commit. Vercel redeploys.
 
 ## How the website talks to the backend
 
