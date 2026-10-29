@@ -88,7 +88,7 @@
           ? 'Record what each department\'s team leader was paid. They confirm it from their own portal.'
           : 'Record what each team member was paid and when. Every member confirms it from their own portal.',
         dept: type === 'member',
-        filters: [{ name: 'period', label: 'Month', type: 'month', value: period }, ...(type === 'member' ? [{ name: 'search', label: 'Search', placeholder: 'Name or code' }] : [])],
+        filters: [{ name: 'period', label: 'Month', type: 'month', value: period, placeholder: 'YYYY-MM' }, ...(type === 'member' ? [{ name: 'search', label: 'Search', placeholder: 'Name or code' }] : [])],
         csv: (f) => `/api/salaries${E.qs({ ...f, type, format: 'csv' })}`,
         load: async (f) => {
           const r = await E.get(`/api/salaries${E.qs({ ...f, type })}`);

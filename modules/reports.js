@@ -198,7 +198,6 @@
       await E.listPage(el, {
         title: 'My report', subtitle: 'How you are doing: attendance, orders, sales, tasks and any complaints.',
         filters: [{ name: 'from', label: 'From', type: 'date', value: E.monthStart() }, { name: 'to', label: 'To', type: 'date', value: E.today() }],
-        actions: html`<button class="btn" type="button" data-act="print">🖨 Print</button>`,
         load: async (f) => memberReport(await E.get(`/api/reports/me${E.qs(f)}`)),
       });
       E.actions(el, { print: () => window.print() });
