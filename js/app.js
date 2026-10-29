@@ -336,7 +336,13 @@
       app.onclick = null;
       showShell();
     } catch (ex) {
-      E.mount(app, html`<div class="boot"><div class="error">${ex.message}</div></div>`);
+      const unreachable = [502, 503, 504].includes(ex.status) || /Failed to fetch|NetworkError|Load failed/i.test(ex.message);
+      E.mount(app, html`<div class="boot"><div class="card" style="max-width:520px;margin:16px">
+        <h3>${unreachable ? 'Cannot reach the server' : 'Something went wrong'}</h3>
+        <p>${unreachable ? 'The website is running, but the server behind it did not answer. Please try again in a minute.' : ex.message}</p>
+        ${unreachable ? html`<p class="muted small">For the administrator: check that the backend service is running (its /api/health page answers) and that the backend address in vercel.json is correct. (${ex.message})</p>` : ''}
+        <button class="btn primary" id="retry">Try again</button></div></div>`);
+      E.$('#retry').onclick = () => location.reload();
     }
   }
   E.boot = boot;
