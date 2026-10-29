@@ -38,6 +38,7 @@
         ${E.field({ name: 'role', label: 'Role', type: 'select', value: e.role, options: [{ value: 'member', label: 'Team member' }, { value: 'team_leader', label: 'Team lead' }] })}
         ${E.field({ name: 'shiftId', label: 'Shift', type: 'select', value: e.shiftId ?? '', options: [{ value: '', label: 'No shift' }, ...E.idOptions(shifts)] })}
         ${E.field({ name: 'joinDate', label: 'Joining date', type: 'date', value: e.joinDate, required: true })}
+        ${existing ? '' : E.field({ name: 'pin', label: 'Member PIN (6 digits)', value: '', placeholder: 'Leave empty to generate one', attrs: 'inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off"', help: 'The member signs in with this PIN. You can reset it later.' })}
         ${existing ? E.field({ name: 'status', label: 'Status', type: 'select', value: e.status, options: ['active', 'inactive', 'resigned', 'terminated'] }) : ''}
         <div class="sect">Personal details</div>
         ${E.field({ name: 'phone', label: 'Phone', value: e.phone })}${E.field({ name: 'email', label: 'Email', type: 'email', value: e.email })}
@@ -51,7 +52,7 @@
         if (dept) dept.addEventListener('change', () => E.mount(form.elements.teamId, html`${teamOptions(dept.value).map((o) => html`<option value="${o.value}">${o.label}</option>`)}`));
       },
       onSubmit: async (v, { close }) => {
-        const body = { ...v, teamId: v.teamId || null, shiftId: v.shiftId || null, gender: v.gender || null };
+        const body = { ...v, teamId: v.teamId || null, shiftId: v.shiftId || null, gender: v.gender || null, pin: v.pin || undefined };
         if (existing) {
           await E.put(`/api/employees/${existing.id}`, { ...body, departmentId: body.departmentId || existing.departmentId });
           E.toast('Employee updated');
@@ -90,10 +91,12 @@
         onSubmit: async (v, { close: c }) => { await E.post(`/api/employees/${id}/history`, v); c(); close(); onChange(); openProfile(id, onChange); },
       });
     });
-    mk('Reset PIN', async () => {
-      if (!(await E.confirm(`Generate a new PIN for ${e.name}? The old PIN stops working and they are signed out.`))) return;
-      const r = await E.post(`/api/employees/${id}/reset-pin`);
-      E.showPin(e.name, r.pin);
+    mk('Reset PIN', () => {
+      E.modal({
+        title: `New PIN for ${e.name}`, submit: 'Set PIN',
+        body: html`<p class="muted">The old PIN stops working and ${e.name} is signed out.</p><div class="form">${E.field({ name: 'pin', label: 'New PIN (6 digits)', value: '', placeholder: 'Leave empty to generate one', full: true, attrs: 'inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off"' })}</div>`,
+        onSubmit: async (v, { close: c }) => { const r = await E.post(`/api/employees/${id}/reset-pin`, v.pin ? { pin: v.pin } : {}); c(); E.showPin(e.name, r.pin); },
+      });
     });
     mk('Edit', () => { close(); openForm(e, onChange); }, 'primary');
   }
