@@ -144,10 +144,13 @@
       let rows = [];
       const ctrl = await E.listPage(el, {
         title: E.isLeader() ? 'My team' : 'Teams',
-        subtitle: E.isLeader() ? 'Your team and its member password.' : 'Every department has teams; each team has one leader and its own members.', dept: true,
+        subtitle: E.isLeader() ? 'Your team and its member password.' : 'Every department has up to 3 teams; each team has one leader and its own members.', dept: true,
         actions: E.seesAllTeams() ? html`<button class="btn primary" data-act="add">+ Add team</button>` : '',
+        // a department has one head and at most 3 team leaders, each leading one team
         load: async (f) => {
           rows = await E.get(`/api/teams${E.qs(f)}`);
+          const add = E.$('[data-act=add]', el);
+          if (add && E.isHead()) { add.hidden = rows.length >= 3; }
           if (!rows.length) return html`<div class="card empty">${E.isLeader() ? 'You do not lead a team yet. Ask your head of department.' : 'No teams yet. Add the first one.'}</div>`;
           return html`<div class="grid cols-2">${rows.map((t) => html`<div class="card">
             <h3><span>${t.name}</span><span class="badge">${t.memberCount} member${t.memberCount === 1 ? '' : 's'}</span></h3>
