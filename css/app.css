@@ -62,9 +62,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .who { margin: 0 6px 10px; padding: 10px 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
 .who b { display: block; color: var(--accent); font-size: 14px; }
 .who.has-photo { display: flex; align-items: center; gap: 10px; }
-.avatar { flex: none; width: 46px; height: 46px; border-radius: 50%; object-fit: cover; object-position: center 20%; border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), 0 4px 14px rgba(0, 0, 0, .5); background: var(--panel2); }
-.avatar.lg { width: 58px; height: 58px; }
-.hello { display: inline-flex; align-items: center; gap: 14px; }
+.avatar { flex: none; width: 44px; height: 52px; border-radius: 9px; object-fit: cover; object-position: center top; border: 1px solid var(--line2); box-shadow: 0 3px 10px rgba(0, 0, 0, .45); background: var(--panel2); }
+.hero-card { display: flex; align-items: center; gap: 22px; padding: 18px; margin-bottom: 18px; border-radius: 16px; border: 1px solid var(--line2); background: linear-gradient(120deg, rgba(168, 255, 90, .09), transparent 55%), var(--panel); }
+.hero-card .portrait { flex: none; width: 112px; height: 140px; border-radius: 12px; object-fit: cover; object-position: center top; border: 1px solid var(--line2); box-shadow: 0 8px 24px rgba(0, 0, 0, .55), 0 0 0 4px var(--accent-soft); }
+.hero-card h3 { font-size: 24px; margin: 2px 0 4px; }
+.hero-card p { margin: 0 0 10px; }
+.hero-card .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 560px) { .hero-card { gap: 14px; padding: 14px; } .hero-card .portrait { width: 84px; height: 105px; } .hero-card h3 { font-size: 20px; } }
 .nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 9px; color: var(--text); text-decoration: none; cursor: pointer; font-weight: 500; }
 .nav a:hover { background: var(--panel2); }
 .nav a.active { background: var(--accent-soft); color: var(--accent); }

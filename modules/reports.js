@@ -10,7 +10,9 @@
     async render(el) {
       const admin = E.isAdmin();
       const depts = admin ? await E.departments() : [];
-      E.mount(el, html`${E.pageHead(admin ? html`<span class="hello"><img class="avatar lg" src="/img/admin.jpg" alt="">Admin dashboard</span>` : E.isHead() ? `${E.user.departmentName} dashboard` : `${E.user.teamName || 'Team'} dashboard`, `${fmt.date(E.today())}${E.isHead() ? ' · all your teams together' : E.isLeader() ? ' · your team' : ''}`, '')}
+      E.mount(el, html`${E.pageHead(admin ? 'Admin dashboard' : E.isHead() ? `${E.user.departmentName} dashboard` : `${E.user.teamName || 'Team'} dashboard`, `${fmt.date(E.today())}${E.isHead() ? ' · all your teams together' : E.isLeader() ? ' · your team' : ''}`, '')}
+        ${admin ? html`<div class="hero-card"><img class="portrait" src="/img/admin-portrait.jpg" alt="Administrator">
+          <div><div class="muted small">Welcome back</div><h3>Administrator</h3><p class="muted">${E.settings.companyName || 'eTricks'} Hub · all departments</p><div class="chips"><span class="badge ok">Admin</span><span class="badge">${fmt.date(E.today())}</span></div></div></div>` : ''}
         ${admin ? html`<form class="filters"><label>Department<select name="departmentId"><option value="">All departments</option>${depts.map((d) => html`<option value="${d.id}">${d.name}</option>`)}</select></label></form>` : ''}
         <div id="dash"></div>`);
       const load = async () => {
