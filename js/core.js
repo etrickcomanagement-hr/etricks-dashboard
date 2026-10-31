@@ -182,7 +182,7 @@
   // Shows a one-time secret (e.g. a new PIN) so it can be handed to the employee.
   E.showPin = (name, pin) => E.modal({
     title: 'Personal PIN', cancel: 'Close',
-    body: html`<p><b>${name}</b> signs in to the member portal with the department password and this PIN.</p>
+    body: html`<p><b>${name}</b> signs in to the member portal with the team password and this PIN.</p>
       <div class="pin-box"><b>${pin}</b></div><p class="muted small">This PIN is shown only once. If it is lost, reset it from the employee's profile.</p>`,
   });
 
@@ -205,6 +205,15 @@
   const idOpts = (rows, blank) => [...(blank ? [{ value: '', label: blank }] : []), ...rows.map((r) => ({ value: r.id, label: r.name }))];
   E.idOptions = idOpts;
   E.isAdmin = () => E.user?.role === 'admin';
+  E.isHead = () => E.user?.role === 'hod';
+  E.isLeader = () => E.user?.role === 'leader';
+  // Who can see more than one team: the admin and the head of department.
+  E.seesAllTeams = () => E.user?.role === 'admin' || E.user?.role === 'hod';
+  // Personal pages (my attendance, my leave ...) are open to members, team leaders and heads. Members see them ungrouped.
+  E.SELF = ['hod', 'leader', 'member'];
+  E.MANAGE = ['admin', 'hod', 'leader'];
+  E.myGroup = (role) => (role === 'member' ? '' : 'My work');
+  E.roleLabel = { admin: 'Admin', hod: 'Head of department', team_leader: 'Team leader', member: 'Team member' };
 
   // Standard "filters + results + export" page. load(filters) returns html; bind(resultsEl, refresh, filters) wires row actions.
   E.listPage = async (el, { title, subtitle = '', actions = '', filters = [], dept = false, csv, load, bind }) => {

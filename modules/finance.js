@@ -7,12 +7,15 @@
   async function entryForm(existing, onSaved) {
     const admin = E.isAdmin();
     const depts = admin ? await E.departments() : [];
+    const teams = E.isLeader() ? [] : await E.teams('');
     const e = existing || { date: E.today(), orders: 0, investment: 0, revenue: 0, expenses: 0, custom: {} };
+    const teamOptions = (deptId) => [{ value: '', label: 'Whole department (no single team)' }, ...teams.filter((t) => !deptId || String(t.departmentId) === String(deptId)).map((t) => ({ value: t.id, label: t.name }))];
     const extra = await E.customInputs('finance', e.custom);
     E.modal({
       title: existing ? 'Edit finance entry' : 'Add finance entry', wide: true,
       body: html`<div class="form">
         ${admin && !existing ? E.field({ name: 'departmentId', label: 'Department', type: 'select', required: true, options: [{ value: '', label: 'Select…' }, ...E.idOptions(depts)] }) : ''}
+        ${E.isLeader() ? html`<div class="full muted small">This entry is saved in the books of <b>${E.user.teamName || 'your team'}</b>.</div>` : E.field({ name: 'teamId', label: 'Team', type: 'select', value: e.teamId ?? '', options: teamOptions(admin ? e.departmentId : '') })}
         ${E.field({ name: 'date', label: 'Date', type: 'date', value: e.date, required: true })}
         ${E.field({ name: 'store', label: 'Store / account', value: e.store, placeholder: 'Optional, e.g. store name' })}
         ${E.field({ name: 'orders', label: 'Orders received', type: 'number', value: e.orders, attrs: 'min="0" step="1"' })}
@@ -22,7 +25,12 @@
         ${E.field({ name: 'note', label: 'Note', value: e.note, full: true })}
         <div class="full muted small">Profit = Sales − Investment − Other expenses (calculated automatically).</div>
         ${extra.html}</div>`,
+      onOpen: (form) => {
+        const dept = form.elements.departmentId;
+        if (dept) dept.addEventListener('change', () => E.mount(form.elements.teamId, html`${teamOptions(dept.value).map((o) => html`<option value="${o.value}">${o.label}</option>`)}`));
+      },
       onSubmit: async (v, { close }) => {
+        v = { ...v, teamId: v.teamId || null };
         if (existing) await E.put(`/api/finance/${existing.id}`, v); else await E.post('/api/finance', v);
         E.toast('Saved');
         close();
@@ -32,15 +40,17 @@
   }
 
   E.page({
-    id: 'finance', title: 'Finance', icon: '$', roles: ['admin', 'leader'], group: 'Insights', order: 10,
+    id: 'finance', title: 'Finance', icon: '$', roles: E.MANAGE, group: 'Insights', order: 10,
     async render(el) {
+      const teams = E.isLeader() ? [] : await E.teams('');
       let rows = [];
       const ctrl = await E.listPage(el, {
-        title: 'Finance', subtitle: 'Orders, investment, sales and profit.', dept: true,
+        title: 'Finance', subtitle: E.isLeader() ? 'The books of your team: orders, investment, sales and profit.' : 'Orders, investment, sales and profit, by team.', dept: true,
         actions: html`<button class="btn primary" data-act="add">+ Add entry</button>`,
         filters: [
           { name: 'from', label: 'From', type: 'date', value: E.monthStart() }, { name: 'to', label: 'To', type: 'date', value: E.today() },
           { name: 'search', label: 'Store / note', placeholder: 'Search' },
+          ...(E.isLeader() ? [] : [{ name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...teams.map((t) => ({ value: t.id, label: E.isAdmin() ? `${t.departmentName} · ${t.name}` : t.name }))] }]),
         ],
         csv: (f) => `/api/finance${E.qs({ ...f, format: 'csv' })}`,
         load: async (f) => {
@@ -53,6 +63,7 @@
             ${E.stat('ROI', t.roi != null ? `${t.roi}%` : '-', { sub: 'profit ÷ (investment + expenses)' })}</div>
             ${E.table([
               { label: 'Date', render: (x) => fmt.date(x.date) }, ...(E.isAdmin() ? [{ label: 'Department', key: 'departmentName' }] : []),
+              ...(E.isLeader() ? [] : [{ label: 'Team', render: (x) => x.teamName || html`<span class="muted">Whole department</span>` }]),
               { label: 'Store', render: (x) => x.store || '-' }, { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) },
               { label: 'Investment', class: 'num', render: (x) => fmt.money(x.investment) }, { label: 'Sales', class: 'num', render: (x) => fmt.money(x.revenue) },
               { label: 'Expenses', class: 'num', render: (x) => fmt.money(x.expenses) }, { label: 'Profit', class: 'num', render: (x) => money(x.profit) },

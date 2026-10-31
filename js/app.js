@@ -27,12 +27,13 @@
       <main>
         <div class="hero">${E.logo(true)}
           <h1>Welcome to the ${E.settings.companyName || 'eTricks'} Hub</h1>
-          <p>Choose your department and portal to continue. Team leaders manage attendance, requests, tasks and finance. Team members mark their own attendance and work.</p>
+          <p>Choose your department and portal to continue. Every department has a head, team leaders with their own teams, and team members. Everybody checks in and out; each person sees only what belongs to their team.</p>
         </div>
         <div class="dept-grid">${depts.map((d) => html`<div class="dept-card" style="--c:${d.color}">
           <h3>${LOGOS.has(d.slug) ? html`<span class="dept-logo"><img src="/img/depts/${d.slug}.svg" alt=""></span>` : html`<span class="dot"></span>`}<span>${d.name}</span></h3>
           <div class="btns">
-            <button class="btn primary" data-portal="leader" data-dept="${d.id}"><span>Team Leader Portal</span><span>→</span></button>
+            <button class="btn primary" data-portal="hod" data-dept="${d.id}"><span>Head of Department Portal</span><span>→</span></button>
+            <button class="btn" data-portal="leader" data-dept="${d.id}"><span>Team Leader Portal</span><span>→</span></button>
             <button class="btn" data-portal="member" data-dept="${d.id}"><span>Team Member Portal</span><span>→</span></button>
           </div></div>`)}</div>
       </main>
@@ -46,13 +47,14 @@
   }
 
   function openLogin(portal, dept) {
-    const titles = { admin: 'Admin portal', leader: `Team Leader Portal - ${dept?.name}`, member: `Team Member Portal - ${dept?.name}` };
+    const titles = { admin: 'Admin portal', hod: `Head of Department Portal - ${dept?.name}`, leader: `Team Leader Portal - ${dept?.name}`, member: `Team Member Portal - ${dept?.name}` };
+    const who = { hod: 'Your password was set by the admin.', leader: 'Your password was set by your head of department.' };
     const finish = async (close) => { close(); await boot(); };
 
     if (portal !== 'member') {
       E.modal({
         title: titles[portal], submit: 'Sign in',
-        body: html`<div class="form">${E.field({ name: 'password', label: 'Password', type: 'password', required: true, full: true, attrs: 'autocomplete="current-password"' })}</div>`,
+        body: html`<div class="form">${E.field({ name: 'password', label: 'Password', type: 'password', required: true, full: true, help: who[portal] || '', attrs: 'autocomplete="current-password"' })}</div>`,
         onSubmit: async (v, { close }) => {
           await E.post('/api/auth/login', { portal, departmentId: dept?.id, password: v.password });
           await finish(close);
@@ -66,15 +68,16 @@
     let step = 1;
     E.modal({
       title: titles.member, submit: 'Continue',
-      body: html`<div class="form">${E.field({ name: 'password', label: 'Department password', type: 'password', required: true, full: true, help: 'Ask your team leader if you do not have it.' })}</div>`,
+      body: html`<div class="form">${E.field({ name: 'password', label: 'Team password', type: 'password', required: true, full: true, help: 'The password of your team. Ask your team leader if you do not have it.' })}</div>`,
       onSubmit: async (v, { form, close }) => {
         if (step === 1) {
-          const names = await E.post('/api/auth/members', { departmentId: dept.id, password: v.password });
+          const found = await E.post('/api/auth/members', { departmentId: dept.id, password: v.password });
           password = v.password;
           step = 2;
+          E.$('h3', form).textContent = `${found.team.name} - ${dept.name}`;
           E.mount(E.$('.mbody', form), html`<div class="form">${E.field({ name: 'employeeId', label: 'Your name', type: 'select', required: true, full: true,
-            options: [{ value: '', label: 'Select your name…' }, ...names.map((n) => ({ value: n.id, label: `${n.name} (${n.empCode})` }))] })}
-            ${E.field({ name: 'pin', label: 'Your personal PIN', type: 'password', required: true, full: true, attrs: 'inputmode="numeric" autocomplete="off"', help: 'The 6-digit PIN your team leader gave you.' })}</div>`);
+            options: [{ value: '', label: 'Select your name…' }, ...found.members.map((n) => ({ value: n.id, label: `${n.name} (${n.empCode})` }))] })}
+            ${E.field({ name: 'pin', label: 'Your personal PIN', type: 'password', required: true, full: true, attrs: 'inputmode="numeric" autocomplete="off"', help: 'The 6-digit PIN your team leader gave you (the PIN is yours alone).' })}</div>`);
           E.$('.btn.primary', form).textContent = 'Sign in';
           E.$('select', form).focus();
           return;
@@ -86,7 +89,10 @@
   }
 
   // ---------------- shell ----------------
-  const GROUP_ORDER = ['', 'People', 'Operations', 'Insights', 'Administration'];
+  const GROUP_ORDER = ['', 'My work', 'People', 'Operations', 'Insights', 'Administration'];
+  const ROLE_NAME = { admin: 'Admin', hod: 'Head of Department', leader: 'Team Leader', member: 'Team Member' };
+  // A page's group may depend on who is looking (personal pages are 'My work' for leaders and heads, ungrouped for members).
+  const groupOf = (p) => (typeof p.group === 'function' ? p.group(E.user.role) : p.group);
 
   // ---------------- notifications (bell) ----------------
   let notifTimer = null;
@@ -264,12 +270,14 @@
   function visiblePages() {
     return E.pages
       .filter((p) => p.roles.includes(E.user.role) && (!p.module || E.enabled.has(p.module)))
+      .map((p) => ({ ...p, group: groupOf(p) }))
       .sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group) || a.order - b.order);
   }
 
   function showShell() {
     const pages = visiblePages();
-    const roleName = { admin: 'Admin', leader: 'Team Leader', member: 'Team Member' }[E.user.role];
+    const u = E.user;
+    const place = [u.departmentName, u.role === 'member' || u.role === 'leader' ? u.teamName : null].filter(Boolean).join(' · ');
     let lastGroup = null;
     const nav = pages.map((p) => {
       const head = p.group && p.group !== lastGroup ? html`<div class="grp">${p.group}</div>` : '';
@@ -279,7 +287,7 @@
     E.mount(app, html`<div class="shell">
       <aside class="side" id="side">
         ${E.logo()}
-        <div class="who"><span class="muted">${E.user.name ? E.user.label : roleName}</span><b>${E.user.name || E.user.label}</b></div>
+        <div class="who"><span class="muted">${ROLE_NAME[u.role]}${place ? ` · ${place}` : ''}</span><b>${u.name || u.label}</b></div>
         <button class="btn bell" id="bell" type="button">🔔 Notifications <span class="bell-count" hidden></span></button>
         <nav class="nav">${nav}</nav>
         <div class="spacer"></div>

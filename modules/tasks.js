@@ -7,7 +7,7 @@
 
   // ---------------- member ----------------
   E.page({
-    id: 'my-tasks', title: 'My Tasks & Work', icon: '☑', roles: ['member'], order: 30,
+    id: 'my-tasks', title: 'My Tasks & Work', icon: '☑', roles: E.SELF, group: E.myGroup, order: 30,
     async render(el) {
       const [tasks, logs] = await Promise.all([E.get('/api/tasks/me'), E.get('/api/worklogs/me')]);
       E.mount(el, html`${E.pageHead('My tasks & daily work', 'Update task progress and log what you did today.', html`<button class="btn primary" data-act="log">+ Log today's work</button>`)}
@@ -23,7 +23,7 @@
         ${E.table([
           { label: 'Date', render: (l) => fmt.date(l.date) }, { label: 'Work done', class: 'wrap', render: (l) => html`${l.summary}${l.taskTitle ? html`<div class="muted small">Task: ${l.taskTitle}</div>` : ''}` },
           { label: 'Hours', class: 'num', key: 'hours' }, { label: 'Units / orders', class: 'num', key: 'units' },
-          { label: 'Leader review', render: (l) => (l.rating ? html`<span class="badge ok">${l.rating}/5</span>${l.reviewNote ? html`<div class="muted small">${l.reviewNote}</div>` : ''}` : html`<span class="muted">Pending</span>`) },
+          { label: 'Review', render: (l) => (l.rating ? html`<span class="badge ok">${l.rating}/5</span>${l.reviewNote ? html`<div class="muted small">${l.reviewNote}</div>` : ''}` : html`<span class="muted">Pending</span>`) },
         ], logs, 'No work logged yet.')}`);
       const reload = () => E.pages.find((p) => p.id === 'my-tasks').render(el);
       el.onchange = async (ev) => {
@@ -49,6 +49,7 @@
     const admin = E.isAdmin();
     const deptId = existing ? existing.departmentId : admin ? '' : E.user.departmentId;
     const [emps, teams] = await Promise.all([E.employees(deptId), E.teams(deptId)]);
+    const people = (list) => list.map((e) => ({ value: e.id, label: e.role === 'member' ? e.name : `${e.name} (${E.roleLabel[e.role]})` }));
     const extra = await E.customInputs('task', existing?.custom || {});
     E.modal({
       title: existing ? 'Edit task' : 'Assign task', wide: true, submit: existing ? 'Save' : 'Assign',
@@ -56,9 +57,9 @@
         ${E.field({ name: 'title', label: 'Task', value: existing?.title, required: true, full: true })}
         ${E.field({ name: 'description', label: 'Details', type: 'textarea', value: existing?.description })}
         ${existing
-          ? E.field({ name: 'assignedTo', label: 'Assigned to', type: 'select', value: existing.assignedTo, options: E.idOptions(emps) })
-          : html`${E.field({ name: 'assignedTo', label: 'Assign to employee', type: 'select', options: E.idOptions(emps, 'Select employee…'), help: 'or choose a whole team below' })}
-            ${E.field({ name: 'teamId', label: 'Assign to whole team', type: 'select', options: E.idOptions(teams, 'No (single employee)'), help: 'Creates one task for every active member' })}`}
+          ? E.field({ name: 'assignedTo', label: 'Assigned to', type: 'select', value: existing.assignedTo, options: people(emps) })
+          : html`${E.field({ name: 'assignedTo', label: 'Assign to', type: 'select', options: [{ value: '', label: 'Select a person…' }, ...people(emps)], help: 'or choose a whole team below' })}
+            ${E.field({ name: 'teamId', label: 'Assign to whole team', type: 'select', options: E.idOptions(teams, 'No (one person)'), help: 'Creates one task for every active member' })}`}
         ${E.field({ name: 'priority', label: 'Priority', type: 'select', value: existing?.priority || 'medium', options: PRIORITIES })}
         ${E.field({ name: 'dueDate', label: 'Due date', type: 'date', value: existing?.dueDate })}
         ${existing ? E.field({ name: 'status', label: 'Status', type: 'select', value: existing.status, options: STATUS_OPTIONS }) : ''}
@@ -74,16 +75,16 @@
   }
 
   E.page({
-    id: 'tasks', title: 'Tasks', icon: '☑', roles: ['admin', 'leader'], group: 'Operations', order: 10,
+    id: 'tasks', title: 'Tasks', icon: '☑', roles: E.MANAGE, group: 'Operations', order: 10,
     async render(el) {
-      const teams = await E.teams(E.isAdmin() ? '' : E.user.departmentId);
+      const teams = E.isLeader() ? [] : await E.teams('');
       let rows = [];
       const ctrl = await E.listPage(el, {
         title: 'Tasks', subtitle: 'Assign work to people or whole teams and follow progress.', dept: true,
         actions: html`<button class="btn primary" data-act="add">+ Assign task</button>`,
         filters: [
           { name: 'search', label: 'Search', placeholder: 'Task or employee' },
-          { name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...E.idOptions(teams)] },
+          ...(E.isLeader() ? [] : [{ name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...E.idOptions(teams)] }]),
           { name: 'status', label: 'Status', type: 'select', options: [{ value: '', label: 'Any' }, ...STATUS_OPTIONS] },
           { name: 'priority', label: 'Priority', type: 'select', options: [{ value: '', label: 'Any' }, ...PRIORITIES] },
           { name: 'overdue', label: 'Overdue only', type: 'select', options: [{ value: '', label: 'No' }, { value: '1', label: 'Yes' }] },
@@ -113,7 +114,7 @@
 
   // ---------------- leader / admin: daily work logs ----------------
   E.page({
-    id: 'worklogs', title: 'Daily Work Logs', icon: '✎', roles: ['admin', 'leader'], group: 'Operations', order: 20,
+    id: 'worklogs', title: 'Daily Work Logs', icon: '✎', roles: E.MANAGE, group: 'Operations', order: 20,
     async render(el) {
       let rows = [];
       await E.listPage(el, {
@@ -130,7 +131,7 @@
             { label: 'Work', class: 'wrap', render: (l) => html`${l.summary}${l.taskTitle ? html`<div class="muted small">Task: ${l.taskTitle}</div>` : ''}` },
             { label: 'Hours', class: 'num', key: 'hours' }, { label: 'Units', class: 'num', key: 'units' },
             { label: 'Rating', render: (l) => (l.rating ? html`<span class="badge ok">${l.rating}/5</span>${l.reviewNote ? html`<div class="muted small">${l.reviewNote}</div>` : ''}` : html`<span class="muted">Not rated</span>`) },
-            { label: '', class: 'right', render: (l) => html`<button class="btn sm" data-act="rate" data-id="${l.id}">${l.rating ? 'Re-rate' : 'Rate'}</button>` },
+            { label: '', class: 'right', render: (l) => (l.canReview ? html`<button class="btn sm" data-act="rate" data-id="${l.id}">${l.rating ? 'Re-rate' : 'Rate'}</button>` : '') },
           ], rows, 'No work logged for this period.');
         },
         bind: (box, refresh) => E.actions(box, {

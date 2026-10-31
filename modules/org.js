@@ -2,17 +2,24 @@
   const E = window.Etricks;
   const { html } = E;
 
+  // A small "type a new password" window used for heads, team leaders and teams.
+  function passwordModal({ title, note, label = 'New password', onSave }) {
+    E.modal({
+      title, submit: 'Save password',
+      body: html`<p class="muted">${note}</p><div class="form">${E.field({ name: 'password', label, type: 'password', full: true, required: true, help: 'At least 8 characters', attrs: 'autocomplete="new-password"' })}</div>`,
+      onSubmit: async (v, { close }) => { await onSave(v.password); E.toast('Password saved'); close(); },
+    });
+  }
+
   // ---------------- departments (admin) ----------------
   function deptForm(d, onSaved) {
     const e = d || { color: '#a8ff5a', active: 1 };
     E.modal({
       title: d ? `Edit ${d.name}` : 'Add department', submit: d ? 'Save' : 'Create department',
       body: html`<div class="form">${E.field({ name: 'name', label: 'Name', value: e.name, required: true })}${E.field({ name: 'color', label: 'Colour', type: 'color', value: e.color })}
-        ${E.field({ name: 'leaderName', label: 'Team leader name', value: e.leaderName, placeholder: 'Who leads this department?', full: true })}
         ${E.field({ name: 'description', label: 'Description', value: e.description, full: true })}
-        ${d ? E.field({ name: 'active', label: 'Department is active', type: 'checkbox', value: e.active }) : html`
-          ${E.field({ name: 'leaderPassword', label: 'Team Leader portal password', type: 'password', required: true, help: 'At least 8 characters' })}
-          ${E.field({ name: 'memberPassword', label: 'Team Member portal password', type: 'password', required: true, help: 'At least 8 characters' })}`}</div>`,
+        ${d ? E.field({ name: 'active', label: 'Department is active', type: 'checkbox', value: e.active }) : ''}</div>
+        ${d ? '' : html`<p class="muted small">After creating the department, add its head of department and password from the Departments page.</p>`}`,
       onSubmit: async (v, { close }) => {
         if (d) await E.put(`/api/departments/${d.id}`, v); else await E.post('/api/departments', v);
         E.bust('departments'); E.toast('Saved'); close(); onSaved();
@@ -20,30 +27,22 @@
     });
   }
 
-  // Shared by admin (leader and/or member password) and leader (member password only).
-  // only: 'leader' | 'member' | undefined (admin: both fields)
-  function passwordForm(deptId, name, admin, only) {
-    const kind = only || (admin ? 'both' : 'member');
-    const single = kind !== 'both';
-    const title = { leader: `Team leader password - ${name}`, member: `Team member password - ${name}`, both: `Portal passwords - ${name}` }[kind];
-    const what = {
-      leader: 'This is the password the team leader types to open the Team Leader portal of this department.',
-      member: 'This is the department password members type (before their own PIN) to open the Team Member portal.',
-      both: 'Leave a field empty to keep its current password.',
-    }[kind];
+  // The admin names the head of a department and sets (or changes) the head's password.
+  async function headForm(d, onSaved) {
+    let head = null;
+    if (d.headId) head = await E.get(`/api/employees/${d.headId}`);
     E.modal({
-      title, submit: 'Save password',
-      body: html`<p class="muted">${what} Tell the new password to the people who need it. Nobody is signed out automatically.</p>
-        <div class="form">${kind !== 'member' ? E.field({ name: 'leaderPassword', label: 'New team leader password', type: 'password', full: true, required: single, help: 'At least 8 characters', attrs: 'autocomplete="new-password"' }) : ''}
-        ${kind !== 'leader' ? E.field({ name: 'memberPassword', label: 'New team member password', type: 'password', full: true, required: single, help: 'At least 8 characters', attrs: 'autocomplete="new-password"' }) : ''}</div>`,
+      title: head ? `Head of ${d.name}` : `Add head of ${d.name}`, submit: head ? 'Save' : 'Create head',
+      body: html`<div class="form">${E.field({ name: 'name', label: 'Name', value: head?.name, required: true, full: true })}
+        ${E.field({ name: 'phone', label: 'Phone', value: head?.phone })}${E.field({ name: 'email', label: 'Email', type: 'email', value: head?.email })}
+        ${E.field({ name: 'password', label: head ? 'New password (leave empty to keep)' : 'Portal password', type: 'password', required: !head, full: true, help: 'At least 8 characters. The head signs in to the Head of Department portal with only this password.', attrs: 'autocomplete="new-password"' })}</div>
+        <p class="muted small">The head can add teams, appoint the 3 team leaders and set their passwords. Changing the password signs the head out.</p>`,
       onSubmit: async (v, { close }) => {
-        const body = Object.fromEntries(Object.entries(v).filter(([, x]) => x));
-        await E.put(`/api/departments/${deptId}/passwords`, body);
-        E.toast('Password saved'); close();
+        await E.put(`/api/departments/${d.id}/head`, { ...v, password: v.password || undefined });
+        E.bust('departments'); E.bust('emps'); E.toast('Saved'); close(); onSaved();
       },
     });
   }
-  E.passwordForm = passwordForm;
 
   E.page({
     id: 'departments', title: 'Departments', icon: '▣', roles: ['admin'], group: 'Administration', order: 10,
@@ -51,23 +50,17 @@
       const load = async () => {
         E.bust('departments');
         const rows = await E.departments();
-        E.mount(el, html`${E.pageHead('Departments', 'Each department has a Team Leader portal and a Team Member portal, each with its own password. You set and change the team leader password here.', html`<button class="btn primary" data-act="add">+ Add department</button>`)}
+        E.mount(el, html`${E.pageHead('Departments', 'Each department has one head. The head appoints three team leaders, each with their own team. You set the head\'s name and password here.', html`<button class="btn primary" data-act="add">+ Add department</button>`)}
           <div class="grid cols-2">${rows.map((d) => html`<div class="card" style="border-top:3px solid ${d.color}">
             <h3><span><b style="color:${d.color}">●</b> ${d.name}</span>${E.badge(d.active ? 'active' : 'inactive')}</h3>
-            <div>Team leader: ${d.leaderName ? html`<b>${d.leaderName}</b>` : html`<span class="muted">name not added yet (use Edit)</span>`}</div>
-            <div class="muted small" style="margin-top:2px">${d.employeeCount} active staff · ${d.teamCount} teams${d.description ? ` · ${d.description}` : ''}</div>
+            <div>Head of department: ${d.headName ? html`<b>${d.headName}</b>` : html`<span class="muted">not added yet</span>`}</div>
+            <div class="muted small" style="margin-top:2px">${d.employeeCount} active staff · ${d.teamCount} team${d.teamCount === 1 ? '' : 's'}${d.description ? ` · ${d.description}` : ''}</div>
             <div class="row" style="margin-top:14px">
-              <button class="btn primary sm" data-act="pw-leader" data-id="${d.id}">🔑 Team leader password</button>
-              <button class="btn sm" data-act="pw-member" data-id="${d.id}">🔑 Member password</button>
-              <button class="btn sm" data-act="edit" data-id="${d.id}">Edit name / leader</button>
+              <button class="btn primary sm" data-act="head" data-id="${d.id}">🔑 ${d.headName ? 'Head & password' : 'Add head of department'}</button>
+              <button class="btn sm" data-act="edit" data-id="${d.id}">Edit department</button>
             </div></div>`)}</div>`);
         const find = (id) => rows.find((d) => String(d.id) === id);
-        E.actions(el, {
-          add: () => deptForm(null, load),
-          edit: (id) => deptForm(find(id), load),
-          'pw-leader': (id) => passwordForm(id, find(id).name, true, 'leader'),
-          'pw-member': (id) => passwordForm(id, find(id).name, true, 'member'),
-        });
+        E.actions(el, { add: () => deptForm(null, load), edit: (id) => deptForm(find(id), load), head: (id) => headForm(find(id), load) });
       };
       await load();
     },
@@ -75,50 +68,106 @@
 
   // ---------------- teams ----------------
   async function teamForm(t, onSaved) {
-    const admin = E.isAdmin();
-    const depts = admin ? await E.departments() : [];
-    const deptId = t ? t.departmentId : admin ? '' : E.user.departmentId;
-    const emps = deptId ? await E.employees(deptId) : [];
-    const leaderOptions = (list) => [{ value: '', label: 'No leader yet' }, ...E.idOptions(list)];
+    const depts = E.isAdmin() && !t ? await E.departments() : [];
     E.modal({
-      title: t ? `Edit ${t.name}` : 'Add team',
-      body: html`<div class="form">${admin && !t ? E.field({ name: 'departmentId', label: 'Department', type: 'select', required: true, options: [{ value: '', label: 'Select…' }, ...E.idOptions(depts)] }) : ''}
-        ${E.field({ name: 'name', label: 'Team name', value: t?.name, required: true })}
-        ${E.field({ name: 'leaderEmployeeId', label: 'Team leader', type: 'select', value: t?.leaderEmployeeId ?? '', options: leaderOptions(emps), help: 'Pick from the department\'s employees' })}</div>`,
-      onOpen: (form) => {
-        const sel = form.elements.departmentId;
-        if (sel) sel.addEventListener('change', async () => {
-          const list = sel.value ? await E.employees(sel.value) : [];
-          E.mount(form.elements.leaderEmployeeId, html`${leaderOptions(list).map((o) => html`<option value="${o.value}">${o.label}</option>`)}`);
-        });
-      },
+      title: t ? `Rename ${t.name}` : 'Add team',
+      body: html`<div class="form">${E.isAdmin() && !t ? E.field({ name: 'departmentId', label: 'Department', type: 'select', required: true, full: true, options: [{ value: '', label: 'Select…' }, ...E.idOptions(depts)] }) : ''}
+        ${E.field({ name: 'name', label: 'Team name', value: t?.name, required: true, full: true })}</div>
+        ${t ? '' : html`<p class="muted small">After adding the team, appoint its team leader and set the team's member password.</p>`}`,
       onSubmit: async (v, { close }) => {
-        const body = { ...v, leaderEmployeeId: v.leaderEmployeeId || null };
-        if (t) await E.put(`/api/teams/${t.id}`, body); else await E.post('/api/teams', body);
+        if (t) await E.put(`/api/teams/${t.id}`, v); else await E.post('/api/teams', v);
         E.bust('teams'); E.toast('Team saved'); close(); onSaved();
       },
     });
   }
 
+  // Appoint a team leader: a new person, or somebody who already works in the department.
+  async function leaderForm(t, onSaved) {
+    const people = (await E.employees(t.departmentId)).filter((e) => e.role === 'member' || (e.role === 'team_leader' && (!e.leadsTeam || e.leadsTeam === t.name)));
+    E.modal({
+      title: `Team leader of ${t.name}`, wide: true, submit: 'Appoint',
+      body: html`<div class="form">
+        ${E.field({ name: 'mode', label: 'Who leads this team?', type: 'select', full: true, value: 'new', options: [{ value: 'new', label: 'A new person' }, { value: 'existing', label: 'Somebody who already works in this department' }] })}
+        <div class="full sw-new"><div class="form">${E.field({ name: 'name', label: 'Name', required: true })}${E.field({ name: 'phone', label: 'Phone' })}</div></div>
+        <div class="full sw-existing" hidden><div class="form">${E.field({ name: 'employeeId', label: 'Person', type: 'select', full: true, options: [{ value: '', label: 'Select…' }, ...people.map((e) => ({ value: e.id, label: `${e.name} (${e.empCode})${e.teamName ? ` - ${e.teamName}` : ''}` }))] })}</div></div>
+        ${E.field({ name: 'password', label: 'Team leader password', type: 'password', required: true, full: true, help: 'At least 8 characters. The leader signs in to the Team Leader portal with only this password.', attrs: 'autocomplete="new-password"' })}</div>
+        <p class="muted small">${t.leaderName ? `${t.leaderName} stops being the leader of this team (they stay an employee and can be moved to a team from Employees > Transfer).` : 'The leader can then add members to this team and sees only this team.'}</p>`,
+      onOpen: (form) => {
+        const sync = () => {
+          const fresh = form.elements.mode.value === 'new';
+          E.$('.sw-new', form).hidden = !fresh;
+          E.$('.sw-existing', form).hidden = fresh;
+          form.elements.name.required = fresh;
+          form.elements.employeeId.required = !fresh;
+        };
+        form.elements.mode.addEventListener('change', sync);
+        sync();
+      },
+      onSubmit: async (v, { close }) => {
+        const body = v.mode === 'new' ? { name: v.name, phone: v.phone, password: v.password } : { employeeId: Number(v.employeeId), password: v.password };
+        await E.post(`/api/teams/${t.id}/leader`, body);
+        E.bust('teams'); E.bust('emps'); E.toast('Team leader appointed'); close(); onSaved();
+      },
+    });
+  }
+
+  function leaderPanel(t, onSaved) {
+    if (!t.leaderEmployeeId) return leaderForm(t, onSaved);
+    const { close, form } = E.modal({
+      title: `Team leader of ${t.name}`, cancel: 'Close',
+      body: html`<p><b>${t.leaderName}</b> leads this team.</p>
+        <div class="row"><button type="button" class="btn primary" data-act="pw">🔑 Change leader password</button><button type="button" class="btn" data-act="replace">Appoint someone else</button><button type="button" class="btn danger" data-act="remove">Remove leader</button></div>
+        <p class="muted small" style="margin-top:12px">A changed password signs the leader out. A removed leader stays an employee without a team.</p>`,
+    });
+    E.actions(form, {
+      pw: () => passwordModal({ title: `Password of ${t.leaderName}`, note: 'The leader uses this password in the Team Leader portal. Tell it to them.', onSave: (password) => E.put(`/api/employees/${t.leaderEmployeeId}/password`, { password }) }),
+      replace: () => { close(); leaderForm(t, onSaved); },
+      remove: async () => {
+        if (!(await E.confirm(`Remove ${t.leaderName} as leader of ${t.name}? They stay an employee with no team.`, { yes: 'Remove', danger: true }))) return;
+        await E.del(`/api/teams/${t.id}/leader`);
+        E.bust('teams'); E.bust('emps'); E.toast('Leader removed'); close(); onSaved();
+      },
+    });
+  }
+
+  function teamPasswordForm(t) {
+    passwordModal({
+      title: `Member password - ${t.name}`, label: 'New team password',
+      note: 'Every member of this team types this password (and then their own PIN) in the Team Member portal. Tell it to the members of this team only.',
+      onSave: (password) => E.put(`/api/teams/${t.id}/member-password`, { password }),
+    });
+  }
+
   E.page({
-    id: 'teams', title: 'Teams', icon: '⚑', roles: ['admin', 'leader'], group: 'People', order: 5,
+    id: 'teams', title: 'Teams', icon: '⚑', roles: E.MANAGE, group: 'People', order: 5,
     async render(el) {
       let rows = [];
       const ctrl = await E.listPage(el, {
-        title: 'Teams', subtitle: 'Teams inside each department, with their leaders.', dept: true,
-        actions: html`<button class="btn primary" data-act="add">+ Add team</button>`,
+        title: E.isLeader() ? 'My team' : 'Teams',
+        subtitle: E.isLeader() ? 'Your team and its member password.' : 'Every department has teams; each team has one leader and its own members.', dept: true,
+        actions: E.seesAllTeams() ? html`<button class="btn primary" data-act="add">+ Add team</button>` : '',
         load: async (f) => {
           rows = await E.get(`/api/teams${E.qs(f)}`);
-          return E.table([
-            { label: 'Team', render: (t) => html`<b>${t.name}</b>` }, ...(E.isAdmin() ? [{ label: 'Department', key: 'departmentName' }] : []),
-            { label: 'Team leader', render: (t) => t.leaderName || html`<span class="muted">Not assigned</span>` }, { label: 'Members', class: 'num', key: 'memberCount' },
-            { label: '', class: 'right', render: (t) => html`<div class="actions"><button class="btn sm" data-act="edit" data-id="${t.id}">Edit</button><button class="btn sm danger" data-act="del" data-id="${t.id}">Delete</button></div>` },
-          ], rows, 'No teams yet. Add the first one.');
+          if (!rows.length) return html`<div class="card empty">${E.isLeader() ? 'You do not lead a team yet. Ask your head of department.' : 'No teams yet. Add the first one.'}</div>`;
+          return html`<div class="grid cols-2">${rows.map((t) => html`<div class="card">
+            <h3><span>${t.name}</span><span class="badge">${t.memberCount} member${t.memberCount === 1 ? '' : 's'}</span></h3>
+            <div>Team leader: ${t.leaderName ? html`<b>${t.leaderName}</b>` : html`<span class="muted">not appointed yet</span>`}</div>
+            <div class="muted small" style="margin-top:2px">${E.isAdmin() ? `${t.departmentName} · ` : ''}Member password: ${t.hasMemberPassword ? 'set' : 'not set yet'}</div>
+            <div class="row" style="margin-top:14px">
+              ${E.seesAllTeams() ? html`<button class="btn primary sm" data-act="leader" data-id="${t.id}">👤 ${t.leaderName ? 'Team leader' : 'Appoint leader'}</button>` : ''}
+              <button class="btn sm ${E.isLeader() ? 'primary' : ''}" data-act="pw" data-id="${t.id}">🔑 Member password</button>
+              ${E.seesAllTeams() ? html`<button class="btn sm" data-act="edit" data-id="${t.id}">Rename</button><button class="btn sm danger" data-act="del" data-id="${t.id}">Delete</button>` : ''}
+            </div></div>`)}</div>`;
         },
-        bind: (box, refresh) => E.actions(box, {
-          edit: (id) => teamForm(rows.find((t) => String(t.id) === id), refresh),
-          del: async (id) => { if (await E.confirm('Delete this team? It must have no members.', { yes: 'Delete', danger: true })) { await E.del(`/api/teams/${id}`); E.bust('teams'); E.toast('Team deleted'); refresh(); } },
-        }),
+        bind: (box, refresh) => {
+          const find = (id) => rows.find((t) => String(t.id) === id);
+          E.actions(box, {
+            leader: (id) => leaderPanel(find(id), refresh),
+            pw: (id) => teamPasswordForm(find(id)),
+            edit: (id) => teamForm(find(id), refresh),
+            del: async (id) => { if (await E.confirm('Delete this team? It must have no members (move them with Transfer first).', { yes: 'Delete', danger: true })) { await E.del(`/api/teams/${id}`); E.bust('teams'); E.toast('Team deleted'); refresh(); } },
+          });
+        },
       });
       E.actions(el, { add: () => teamForm(null, ctrl.refresh) });
     },

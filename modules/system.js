@@ -4,9 +4,9 @@
 
   const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-  // ---------------- activity log (admin: everything, leader: own department) ----------------
+  // ---------------- activity log (admin: everything, head of department: own department) ----------------
   E.page({
-    id: 'activity-log', title: 'Activity Log', icon: '☰', roles: ['admin', 'leader'], group: 'Administration', order: 40,
+    id: 'activity-log', title: 'Activity Log', icon: '☰', roles: ['admin', 'hod'], group: 'Administration', order: 40,
     async render(el) {
       await E.listPage(el, {
         title: 'Activity log', subtitle: 'Who did what and when. Entries cannot be edited or deleted.', dept: true,
@@ -22,16 +22,6 @@
           { label: 'Details', class: 'wrap', render: (l) => l.details || '' }, { label: 'IP', render: (l) => html`<span class="muted small">${l.ip || ''}</span>` },
         ], await E.get(`/api/logs${E.qs({ ...f, limit: 300 })}`), 'No activity for these filters.'),
       });
-    },
-  });
-
-  // ---------------- leader: own portal passwords ----------------
-  E.page({
-    id: 'my-security', title: 'Member Password', icon: '🔑', roles: ['leader'], group: 'Administration', order: 10,
-    async render(el) {
-      E.mount(el, html`${E.pageHead('Team member portal password', 'Change the department password your team uses to open the Team Member portal. Each person also has a personal PIN (reset it from their profile).')}
-        <div class="card"><button class="btn primary" id="chg">Change member password</button></div>`);
-      E.$('#chg', el).onclick = () => E.passwordForm(E.user.departmentId, E.user.label.replace('Team Leader - ', ''), false);
     },
   });
 
@@ -53,7 +43,7 @@
             ${E.field({ name: 'wRate', label: 'Work ratings', type: 'number', value: s.scoreWeights.rating })}</div>
             <div class="foot" style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary">Save settings</button></div></form>
           <div class="grid">
-            <div class="card"><h3>Admin password</h3><p class="muted">Use a long, unique password. Department passwords are changed from the Departments page.</p><button class="btn" id="adminPw">Change admin password</button></div>
+            <div class="card"><h3>Admin password</h3><p class="muted">Use a long, unique password. Heads of department are set from Departments, team leaders and team passwords from Teams.</p><button class="btn" id="adminPw">Change admin password</button></div>
             <div class="card"><h3>Database backups <button class="btn sm primary" id="backupNow">Back up now</button></h3>
               <p class="muted small">A backup is created automatically every day and the newest 30 are kept. Download copies regularly and store them off this computer.</p>
               ${E.table([{ label: 'Backup', render: (b) => html`<span class="small">${b.name}</span>` }, { label: 'Size', render: (b) => size(b.size) }, { label: 'Created', render: (b) => fmt.dateTime(b.createdAt) },

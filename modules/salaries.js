@@ -11,14 +11,15 @@
 
   const statusBadge = (s) => html`<span class="badge ${STATUS_KIND[s]}">${STATUS_TEXT[s]}</span>`;
   const confirmBadge = (p) => html`<span class="badge ${CONFIRM_KIND[p.confirmStatus]}">${CONFIRM_TEXT[p.confirmStatus]}</span>`;
+  const roleTag = (r) => (r.role === 'member' ? '' : html` <span class="badge ${r.role === 'hod' ? 'info' : 'ok'}">${E.roleLabel[r.role]}</span>`);
 
   function confirmCell(r) {
     if (!r.payments.length) return html`<span class="muted">-</span>`;
     return html`<div class="row" style="gap:4px">${r.confirmed ? html`<span class="badge ok">${r.confirmed} confirmed</span>` : ''}${r.pending ? html`<span class="badge warn">${r.pending} awaiting</span>` : ''}${r.disputed ? html`<span class="badge bad">${r.disputed} disputed</span>` : ''}</div>`;
   }
 
-  // ---------- modals used by the paying side (team leader for members, admin for leaders) ----------
-  function payForm(type, period, r, onSaved) {
+  // ---------- modals used by the paying side (leader pays members, head pays leaders, admin pays heads) ----------
+  function payForm(period, r, onSaved) {
     E.modal({
       title: `Record salary payment - ${r.name}`,
       body: html`<p class="muted">${monthName(period)}. Paid so far: <b>${fmt.money(r.paid)}</b>${r.remaining ? html` · Remaining: <b>${fmt.money(r.remaining)}</b>` : ''}</p>
@@ -28,21 +29,20 @@
         ${E.field({ name: 'paidDate', label: 'Date paid', type: 'date', value: E.today(), required: true })}
         ${E.field({ name: 'method', label: 'Paid by', type: 'select', options: METHODS })}
         ${E.field({ name: 'note', label: 'Note', full: true, placeholder: 'e.g. advance, bonus, transfer reference' })}</div>
-        <p class="muted small">${type === 'leader' ? 'The team leader will be asked to confirm they received it.' : 'The employee will be asked to confirm they received it.'}</p>`,
+        <p class="muted small">${r.name} will be asked to confirm that the money was received.</p>`,
       onSubmit: async (v, { close }) => {
-        await E.post('/api/salaries/payments', { ...v, type, refId: r.refId, period });
+        await E.post('/api/salaries/payments', { ...v, refId: r.refId, period });
         E.toast('Payment recorded'); close(); onSaved();
       },
     });
   }
 
-  function rateForm(type, r, onSaved) {
+  function rateForm(r, onSaved) {
     E.modal({
       title: `Monthly salary - ${r.name}`,
-      body: html`<div class="form">${E.field({ name: 'amount', label: 'Monthly salary', type: 'number', value: r.rate || '', required: true, attrs: 'min="0" step="0.01"', full: type !== 'leader' })}
-        ${type === 'leader' ? E.field({ name: 'payeeName', label: 'Team leader name', value: r.name.endsWith('team leader') ? '' : r.name, placeholder: 'Who is the team leader?' }) : ''}</div>
+      body: html`<div class="form">${E.field({ name: 'amount', label: 'Monthly salary', type: 'number', value: r.rate || '', required: true, attrs: 'min="0" step="0.01"', full: true })}</div>
         <p class="muted small">This is used as the default salary when you record a payment. Months already recorded keep their own amount.</p>`,
-      onSubmit: async (v, { close }) => { await E.put('/api/salaries/rate', { ...v, type, refId: r.refId }); E.toast('Salary saved'); close(); onSaved(); },
+      onSubmit: async (v, { close }) => { await E.put('/api/salaries/rate', { ...v, refId: r.refId }); E.toast('Salary saved'); close(); onSaved(); },
     });
   }
 
@@ -57,8 +57,8 @@
     });
   }
 
-  async function historyModal(type, r, onChange) {
-    const h = await E.get(`/api/salaries/history${E.qs({ type, refId: r.refId })}`);
+  async function historyModal(r, onChange) {
+    const h = await E.get(`/api/salaries/history${E.qs({ refId: r.refId })}`);
     const all = h.records.flatMap((m) => m.payments.map((p) => ({ ...p, period: m.period, due: m.due })));
     const { form } = E.modal({
       title: `Payment history - ${r.name}`, wide: true, cancel: 'Close',
@@ -70,28 +70,37 @@
           { label: '', class: 'right', render: (p) => (p.confirmStatus === 'confirmed' ? '' : html`<div class="actions"><button type="button" class="btn sm" data-act="edit" data-id="${p.id}">Edit</button><button type="button" class="btn sm danger" data-act="del" data-id="${p.id}">Delete</button></div>`) },
         ], all, 'No payments recorded yet.')}`,
     });
-    const reopen = () => { form.closest('.overlay').remove(); onChange(); historyModal(type, r, onChange); };
+    const reopen = () => { form.closest('.overlay').remove(); onChange(); historyModal(r, onChange); };
     E.actions(form, {
       edit: (id) => editPayment(all.find((p) => String(p.id) === id), reopen),
       del: async (id) => { if (await E.confirm('Delete this payment record?', { yes: 'Delete', danger: true })) { await E.del(`/api/salaries/payments/${id}`); E.toast('Payment deleted'); reopen(); } },
     });
   }
 
-  // ---------- manage pages ----------
-  function managePage(type) {
-    return async (el) => {
+  // ---------- manage page: the people below you ----------
+  E.page({
+    id: 'salaries', title: 'Salaries', icon: '$', roles: E.MANAGE, group: 'People', order: 40,
+    async render(el) {
+      const teams = E.isLeader() ? [] : await E.teams('');
       let rows = [];
       let period = E.today().slice(0, 7);
       await E.listPage(el, {
-        title: type === 'leader' ? 'Team leader salaries' : 'Team salaries',
-        subtitle: type === 'leader'
-          ? 'Record what each department\'s team leader was paid. They confirm it from their own portal.'
-          : 'Record what each team member was paid and when. Every member confirms it from their own portal.',
-        dept: type === 'member',
-        filters: [{ name: 'period', label: 'Month', type: 'month', value: period, placeholder: 'YYYY-MM' }, ...(type === 'member' ? [{ name: 'search', label: 'Search', placeholder: 'Name or code' }] : [])],
-        csv: (f) => `/api/salaries${E.qs({ ...f, type, format: 'csv' })}`,
+        title: E.isLeader() ? 'Team salaries' : 'Salaries',
+        subtitle: E.isLeader() ? 'Record what each member of your team was paid and when. Every member confirms it from their own portal.'
+          : E.isHead() ? 'Record what team leaders and members were paid. The admin records yours. Everybody confirms from their own portal.'
+            : 'Record what heads, team leaders and members were paid. Everybody confirms from their own portal.',
+        dept: true,
+        filters: [
+          { name: 'period', label: 'Month', type: 'month', value: period, placeholder: 'YYYY-MM' },
+          { name: 'search', label: 'Search', placeholder: 'Name or code' },
+          ...(E.isLeader() ? [] : [
+            { name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...teams.map((t) => ({ value: t.id, label: E.isAdmin() ? `${t.departmentName} · ${t.name}` : t.name }))] },
+            { name: 'role', label: 'Who', type: 'select', options: [{ value: '', label: 'Everybody' }, { value: 'member', label: 'Team members' }, { value: 'team_leader', label: 'Team leaders' }, ...(E.isAdmin() ? [{ value: 'hod', label: 'Heads of department' }] : [])] },
+          ]),
+        ],
+        csv: (f) => `/api/salaries${E.qs({ ...f, format: 'csv' })}`,
         load: async (f) => {
-          const r = await E.get(`/api/salaries${E.qs({ ...f, type })}`);
+          const r = await E.get(`/api/salaries${E.qs(f)}`);
           rows = r.rows;
           period = r.period;
           const t = r.totals;
@@ -99,32 +108,29 @@
             ${E.stat('Still to pay', fmt.money(t.remaining), { cls: t.remaining ? 'bad' : '' })}${E.stat('Awaiting confirmation', t.awaitingConfirmation, { cls: t.awaitingConfirmation ? 'accent' : '' })}
             ${E.stat('Disputed', t.disputed, { cls: t.disputed ? 'bad' : '', sub: t.disputed ? 'someone says they did not receive it' : '' })}</div>
             ${E.table([
-              { label: type === 'leader' ? 'Team leader' : 'Employee', render: (x) => html`<b>${x.name}</b><div class="muted small">${[x.code, x.departmentName].filter(Boolean).join(' · ')}</div>` },
+              { label: 'Employee', render: (x) => html`<b>${x.name}</b>${roleTag(x)}<div class="muted small">${[x.code, x.teamName, E.isAdmin() ? x.departmentName : null].filter(Boolean).join(' · ')}</div>` },
               { label: 'Monthly salary', class: 'num', render: (x) => (x.rate ? fmt.money(x.rate) : html`<span class="muted">Not set</span>`) },
               { label: 'Paid', class: 'num', render: (x) => fmt.money(x.paid) }, { label: 'Remaining', class: 'num', render: (x) => fmt.money(x.remaining) },
               { label: 'Last paid', render: (x) => fmt.date(x.lastPaidDate) }, { label: 'Status', render: (x) => statusBadge(x.status) },
               { label: 'Received?', render: confirmCell },
               { label: '', class: 'right', render: (x) => html`<div class="actions"><button class="btn sm primary" data-act="pay" data-id="${x.refId}">Pay</button><button class="btn sm" data-act="history" data-id="${x.refId}">History</button><button class="btn sm" data-act="rate" data-id="${x.refId}">Salary</button></div>` },
-            ], rows, type === 'leader' ? 'No departments yet.' : 'No employees found.')}`;
+            ], rows, 'No employees found.')}`;
         },
         bind: (box, refresh) => {
           const find = (id) => rows.find((x) => String(x.refId) === id);
           E.actions(box, {
-            pay: (id) => payForm(type, period, find(id), refresh),
-            rate: (id) => rateForm(type, find(id), refresh),
-            history: (id) => historyModal(type, find(id), refresh),
+            pay: (id) => payForm(period, find(id), refresh),
+            rate: (id) => rateForm(find(id), refresh),
+            history: (id) => historyModal(find(id), refresh),
           });
         },
       });
-    };
-  }
+    },
+  });
 
-  E.page({ id: 'salaries', title: 'Team Salaries', icon: '$', roles: ['admin', 'leader'], group: 'People', order: 40, render: managePage('member') });
-  E.page({ id: 'leader-salaries', title: 'Leader Salaries', icon: '$', roles: ['admin'], group: 'People', order: 41, render: managePage('leader') });
-
-  // ---------- the person being paid: member and team leader ----------
+  // ---------- the person being paid: member, team leader and head ----------
   E.page({
-    id: 'my-salary', title: 'My Salary', icon: '$', roles: ['member', 'leader'], order: 25,
+    id: 'my-salary', title: 'My Salary', icon: '$', roles: E.SELF, group: E.myGroup, order: 25,
     async render(el) {
       const d = await E.get('/api/salaries/me');
       const reload = () => E.pages.find((p) => p.id === 'my-salary').render(el);
@@ -161,9 +167,9 @@
           E.modal({
             title: 'I did not receive this payment',
             body: html`<p>${fmt.money(p.amount)} on ${fmt.date(p.paidDate)} for ${monthName(p.period)}</p><div class="form">${E.field({ name: 'note', label: 'What is wrong?', type: 'textarea', required: true, placeholder: 'e.g. I received only 400, or nothing received yet' })}</div>
-              <p class="muted small">Your team leader (or the admin) will see this and can correct the record. You can confirm it later once it is sorted out.</p>`,
+              <p class="muted small">The person who pays you will see this and can correct the record. You can confirm it later once it is sorted out.</p>`,
             submit: 'Send',
-            onSubmit: async (v, { close }) => { await E.post(`/api/salaries/payments/${id}/confirm`, { status: 'disputed', note: v.note }); E.toast('Sent. Your leader has been informed.'); close(); reload(); },
+            onSubmit: async (v, { close }) => { await E.post(`/api/salaries/payments/${id}/confirm`, { status: 'disputed', note: v.note }); E.toast('Sent. They have been informed.'); close(); reload(); },
           });
         },
       });

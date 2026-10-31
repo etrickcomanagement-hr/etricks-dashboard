@@ -6,11 +6,11 @@
 
   // ---------------- dashboard (admin + team leader) ----------------
   E.page({
-    id: 'dashboard', title: 'Dashboard', icon: '▦', roles: ['admin', 'leader'], order: 1,
+    id: 'dashboard', title: 'Dashboard', icon: '▦', roles: E.MANAGE, order: 1,
     async render(el) {
       const admin = E.isAdmin();
       const depts = admin ? await E.departments() : [];
-      E.mount(el, html`${E.pageHead(admin ? 'Admin dashboard' : 'Department dashboard', `${fmt.date(E.today())}`, '')}
+      E.mount(el, html`${E.pageHead(admin ? 'Admin dashboard' : E.isHead() ? `${E.user.departmentName} dashboard` : `${E.user.teamName || 'Team'} dashboard`, `${fmt.date(E.today())}${E.isHead() ? ' · all your teams together' : E.isLeader() ? ' · your team' : ''}`, '')}
         ${admin ? html`<form class="filters"><label>Department<select name="departmentId"><option value="">All departments</option>${depts.map((d) => html`<option value="${d.id}">${d.name}</option>`)}</select></label></form>` : ''}
         <div id="dash"></div>`);
       const load = async () => {
@@ -19,7 +19,7 @@
         const max = Math.max(1, ...d.trend.map((t) => t.present));
         E.mount(E.$('#dash', el), html`
           <div class="stats">
-            ${E.stat('Active employees', d.today.employees)}
+            ${E.stat(E.isLeader() ? 'Team members' : 'People', d.today.employees)}
             ${E.stat('Present today', d.today.present, { cls: 'accent', sub: `${d.today.late} late` })}
             ${E.stat('On leave', d.today.onLeave)}
             ${E.stat('Not marked yet', d.today.notMarked, { cls: d.today.notMarked ? 'bad' : '' })}
@@ -43,9 +43,18 @@
               { label: 'Score', render: (r) => scoreBadge(r.score) },
             ], d.topPerformers, 'Scores appear once attendance and tasks are recorded.')}</div>
           </div>
+          ${d.teams ? html`<h3 style="margin:22px 0 10px">Teams</h3>${E.table([
+            { label: 'Team', render: (r) => html`<b>${r.name}</b><div class="muted small">${r.leaderName ? `Leader: ${r.leaderName}` : 'No leader yet'}</div>` },
+            { label: 'Members', class: 'num', key: 'employees' }, { label: 'Present', class: 'num', key: 'present' }, { label: 'Not marked', class: 'num', key: 'notMarked' },
+            { label: 'To approve', class: 'num', render: (r) => r.pendingAttendance + r.pendingLeave }, { label: 'Open tasks', class: 'num', key: 'openTasks' },
+            { label: 'Attendance', render: (r) => E.meter(r.attendanceRate, 90, 75) },
+            { label: 'Orders', class: 'num', render: (r) => fmt.num(r.orders) }, { label: 'Sales', class: 'num', render: (r) => fmt.money(r.sales) },
+            { label: 'Profit', class: 'num', render: (r) => html`<span class="${r.profit < 0 ? 'neg' : 'pos'}">${fmt.money(r.profit)}</span>` },
+            { label: 'Score', class: 'num', render: (r) => scoreBadge(r.score) },
+          ], d.teams, 'No teams yet.')}` : ''}
           ${d.departments ? html`<h3 style="margin:22px 0 10px">Departments</h3>${E.table([
-            { label: 'Department', render: (r) => html`<b style="color:${r.color}">●</b> ${r.name}` },
-            { label: 'Staff', class: 'num', key: 'employees' }, { label: 'Present', class: 'num', key: 'present' }, { label: 'Not marked', class: 'num', key: 'notMarked' },
+            { label: 'Department', render: (r) => html`<b style="color:${r.color}">●</b> ${r.name}<div class="muted small">${r.head ? `Head: ${r.head}` : 'No head yet'} · ${r.teamCount} team${r.teamCount === 1 ? '' : 's'}</div>` },
+            { label: 'People', class: 'num', key: 'employees' }, { label: 'Present', class: 'num', key: 'present' }, { label: 'Not marked', class: 'num', key: 'notMarked' },
             { label: 'To approve', class: 'num', render: (r) => r.pendingAttendance + r.pendingLeave }, { label: 'Open tasks', class: 'num', key: 'openTasks' },
             { label: 'Orders', class: 'num', render: (r) => fmt.num(r.orders) }, { label: 'Investment', class: 'num', render: (r) => fmt.money(r.investment) },
             { label: 'Sales', class: 'num', render: (r) => fmt.money(r.revenue) },
@@ -64,10 +73,10 @@
   // ---------------- performance reports ----------------
   const COLS = {
     employee: [
-      { label: 'Employee', render: (r) => html`${r.name}<div class="muted small">${r.empCode} · ${r.teamName || 'No team'}</div>` },
+      { label: 'Employee', render: (r) => html`${r.name}${r.role !== 'member' ? html` <span class="badge ${r.role === 'hod' ? 'info' : 'ok'}">${E.roleLabel[r.role]}</span>` : ''}<div class="muted small">${r.empCode} · ${r.teamName || 'No team'}</div>` },
       { label: 'Department', key: 'departmentName' },
     ],
-    team: [{ label: 'Team', key: 'teamName' }, { label: 'Department', key: 'departmentName' }, { label: 'Staff', class: 'num', key: 'employees' }],
+    team: [{ label: 'Team', render: (r) => html`${r.teamName}<div class="muted small">${r.leaderName ? `Leader: ${r.leaderName}` : ''}</div>` }, { label: 'Department', key: 'departmentName' }, { label: 'Members', class: 'num', key: 'employees' }],
     department: [{ label: 'Department', key: 'departmentName' }, { label: 'Staff', class: 'num', key: 'employees' }],
   };
   const METRICS = [
@@ -88,15 +97,15 @@
   ];
 
   E.page({
-    id: 'performance', title: 'Performance', icon: '★', roles: ['admin', 'leader'], group: 'Insights', order: 20,
+    id: 'performance', title: 'Performance', icon: '★', roles: E.MANAGE, group: 'Insights', order: 20,
     async render(el) {
-      const teams = await E.teams(E.isAdmin() ? '' : E.user.departmentId);
+      const teams = E.isLeader() ? [] : await E.teams('');
       await E.listPage(el, {
         title: 'Performance reports', subtitle: 'Score = attendance + task completion + work ratings (weights are set by the admin).', dept: true,
         filters: [
-          { name: 'level', label: 'Report for', type: 'select', value: 'employee', options: [{ value: 'employee', label: 'Employees' }, { value: 'team', label: 'Teams' }, { value: 'department', label: 'Departments' }] },
+          { name: 'level', label: 'Report for', type: 'select', value: 'employee', options: [{ value: 'employee', label: 'People' }, { value: 'team', label: 'Teams' }, ...(E.isAdmin() ? [{ value: 'department', label: 'Departments' }] : [])] },
           { name: 'from', label: 'From', type: 'date', value: E.monthStart() }, { name: 'to', label: 'To', type: 'date', value: E.today() },
-          { name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...E.idOptions(teams)] },
+          ...(E.isLeader() ? [] : [{ name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...teams.map((t) => ({ value: t.id, label: E.isAdmin() ? `${t.departmentName} · ${t.name}` : t.name }))] }]),
         ],
         csv: (f) => `/api/reports/performance${E.qs({ ...f, format: 'csv' })}`,
         load: async (f) => {
@@ -119,7 +128,7 @@
     const openC = rep.complaints.filter((c) => c.status === 'open' || c.status === 'under_review').length;
     return html`
       <div class="row" style="justify-content:space-between;align-items:flex-start">
-        <div><h2 style="margin:0">${e.name}</h2><div class="muted">${e.empCode} · ${e.designation || 'Team member'} · ${e.departmentName}${e.teamName ? ` · ${e.teamName}` : ''}</div>
+        <div><h2 style="margin:0">${e.name}</h2><div class="muted">${e.empCode} · ${e.designation || E.roleLabel[e.role] || 'Team member'} · ${e.departmentName}${e.teamName ? ` · ${e.teamName}` : ''}</div>
           <div class="muted small">Joined ${fmt.date(e.joinDate)} · Report period: ${periodText(rep)}</div></div>
         <button class="btn sm no-print" type="button" data-act="print">🖨 Print</button></div>
       <div class="stats" style="margin-top:16px">
@@ -162,22 +171,22 @@
   }
 
   E.page({
-    id: 'member-reports', title: 'Member Reports', icon: '◉', roles: ['admin', 'leader'], group: 'Insights', order: 15,
+    id: 'member-reports', title: 'Member Reports', icon: '◉', roles: E.MANAGE, group: 'Insights', order: 15,
     async render(el) {
-      const teams = await E.teams(E.isAdmin() ? '' : E.user.departmentId);
+      const teams = E.isLeader() ? [] : await E.teams('');
       let current = {};
       await E.listPage(el, {
         title: 'Member reports', subtitle: 'Every member side by side: attendance, orders, sales, tasks and complaints. Open a report for the full picture.', dept: true,
         filters: [
           { name: 'from', label: 'From', type: 'date', value: E.monthStart() }, { name: 'to', label: 'To', type: 'date', value: E.today() },
-          { name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...E.idOptions(teams)] },
+          ...(E.isLeader() ? [] : [{ name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...teams.map((t) => ({ value: t.id, label: E.isAdmin() ? `${t.departmentName} · ${t.name}` : t.name }))] }]),
         ],
         csv: (f) => `/api/reports/members${E.qs({ ...f, format: 'csv' })}`,
         load: async (f) => {
           const r = await E.get(`/api/reports/members${E.qs(f)}`);
           current = { from: r.from, to: r.to };
           return E.table([
-            { label: 'Member', render: (x) => html`<a href="#" data-act="report" data-id="${x.employeeId}"><b>${x.name}</b></a><div class="muted small">${x.empCode} · ${x.teamName || 'No team'}${E.isAdmin() ? ` · ${x.departmentName}` : ''}</div>` },
+            { label: 'Member', render: (x) => html`<a href="#" data-act="report" data-id="${x.employeeId}"><b>${x.name}</b></a>${x.role !== 'member' ? html` <span class="badge ${x.role === 'hod' ? 'info' : 'ok'}">${E.roleLabel[x.role]}</span>` : ''}<div class="muted small">${x.empCode} · ${x.teamName || 'No team'}${E.isAdmin() ? ` · ${x.departmentName}` : ''}</div>` },
             { label: 'Attendance', render: (x) => E.meter(x.attendanceRate, 90, 75) },
             { label: 'Orders', class: 'num', render: (x) => fmt.num(x.ordersTaken) }, { label: 'Investment', class: 'num', render: (x) => fmt.money(x.investment) },
             { label: 'Sales', class: 'num', render: (x) => fmt.money(x.sales) }, { label: 'Profit', class: 'num', render: (x) => profit(x.profit) },
@@ -193,7 +202,7 @@
   });
 
   E.page({
-    id: 'my-report', title: 'My Report', icon: '◉', roles: ['member'], order: 45,
+    id: 'my-report', title: 'My Report', icon: '◉', roles: E.SELF, group: E.myGroup, order: 45,
     async render(el) {
       await E.listPage(el, {
         title: 'My report', subtitle: 'How you are doing: attendance, orders, sales, tasks and any complaints.',

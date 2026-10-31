@@ -18,7 +18,7 @@
         ${E.field({ name: 'investment', label: 'Investment (stock / ads)', type: 'number', value: e.investment ?? '', attrs: 'min="0" step="0.01"' })}
         ${E.field({ name: 'revenue', label: 'Sales (money earned)', type: 'number', value: e.revenue ?? '', attrs: 'min="0" step="0.01"' })}
         ${E.field({ name: 'note', label: 'Note', value: e.note, full: true })}</div>
-        <p class="muted small">Your team leader and the admin can see this. You can change an entry for 7 days.</p>`,
+        <p class="muted small">Your team leader, your head of department and the admin can see this. You can change an entry for 7 days.</p>`,
       onSubmit: async (v, { close }) => {
         if (o) await E.put(`/api/orders/${o.id}`, v); else await E.post('/api/orders', v);
         E.toast('Saved'); close(); onSaved();
@@ -55,20 +55,24 @@
 
   // ---------------- leader / admin: what members reported ----------------
   E.page({
-    id: 'orders', title: 'Member Orders', icon: '▤', roles: ['admin', 'leader'], group: 'Operations', order: 15,
+    id: 'orders', title: 'Member Orders', icon: '▤', roles: E.MANAGE, group: 'Operations', order: 15,
     async render(el) {
-      const teams = await E.teams(E.isAdmin() ? '' : E.user.departmentId);
+      const teams = E.isLeader() ? [] : await E.teams('');
       await E.listPage(el, {
         title: 'Member orders & sales', subtitle: 'Orders, investment and sales reported by each team member.', dept: true,
         filters: [
           { name: 'from', label: 'From', type: 'date', value: E.monthStart() }, { name: 'to', label: 'To', type: 'date', value: E.today() },
           { name: 'search', label: 'Search', placeholder: 'Member or store' },
-          { name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...E.idOptions(teams)] },
+          ...(E.isLeader() ? [] : [{ name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...teams.map((t) => ({ value: t.id, label: E.isAdmin() ? `${t.departmentName} · ${t.name}` : t.name }))] }]),
         ],
         csv: (f) => `/api/orders${E.qs({ ...f, format: 'csv' })}`,
         load: async (f) => {
           const r = await E.get(`/api/orders${E.qs(f)}`);
           return html`${totalsStats(r.totals)}
+            ${r.byTeam.length > 1 ? html`<h3 style="margin:0 0 10px">By team</h3>${E.table([
+              { label: 'Team', render: (x) => html`<b>${x.name}</b>` }, { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) }, { label: 'Investment', class: 'num', render: (x) => fmt.money(x.investment) },
+              { label: 'Sales', class: 'num', render: (x) => fmt.money(x.revenue) }, { label: 'Profit', class: 'num', render: (x) => profitCell(x.profit) },
+            ], r.byTeam)}<div style="height:22px"></div>` : ''}
             <h3 style="margin:0 0 10px">By member</h3>${E.table([
               { label: 'Member', render: (x) => html`<b>${x.name}</b><div class="muted small">${x.empCode}${E.isAdmin() ? ` · ${x.departmentName}` : ''}</div>` },
               { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) }, { label: 'Investment', class: 'num', render: (x) => fmt.money(x.investment) },
