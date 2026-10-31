@@ -71,7 +71,7 @@
 
   // ---------------- member: complaints about me ----------------
   E.page({
-    id: 'my-complaints', title: 'Complaints', icon: '⚠', roles: E.SELF, group: E.myGroup, order: 35,
+    id: 'my-complaints', title: 'Complaints About Me', icon: '⚠', roles: E.SELF, group: E.myGroup, order: 35,
     async render(el) {
       const rows = await E.get('/api/complaints/me');
       E.mount(el, html`${E.pageHead('Complaints about me', 'You can read each complaint and give your side of the story. The person who filed it, and your seniors, will see your reply.')}
