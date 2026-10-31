@@ -287,7 +287,7 @@
     E.mount(app, html`<div class="shell">
       <aside class="side" id="side">
         ${E.logo()}
-        <div class="who"><span class="muted">${ROLE_NAME[u.role]}${place ? ` · ${place}` : ''}</span><b>${u.name || u.label}</b></div>
+        <div class="who ${u.role === 'admin' ? 'has-photo' : ''}">${u.role === 'admin' ? html`<img class="avatar" src="/img/admin.jpg" alt="">` : ''}<div><span class="muted">${ROLE_NAME[u.role]}${place ? ` · ${place}` : ''}</span><b>${u.name || u.label}</b></div></div>
         <button class="btn bell" id="bell" type="button">🔔 Notifications <span class="bell-count" hidden></span></button>
         <nav class="nav">${nav}</nav>
         <div class="spacer"></div>

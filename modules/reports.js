@@ -10,7 +10,7 @@
     async render(el) {
       const admin = E.isAdmin();
       const depts = admin ? await E.departments() : [];
-      E.mount(el, html`${E.pageHead(admin ? 'Admin dashboard' : E.isHead() ? `${E.user.departmentName} dashboard` : `${E.user.teamName || 'Team'} dashboard`, `${fmt.date(E.today())}${E.isHead() ? ' · all your teams together' : E.isLeader() ? ' · your team' : ''}`, '')}
+      E.mount(el, html`${E.pageHead(admin ? html`<span class="hello"><img class="avatar lg" src="/img/admin.jpg" alt="">Admin dashboard</span>` : E.isHead() ? `${E.user.departmentName} dashboard` : `${E.user.teamName || 'Team'} dashboard`, `${fmt.date(E.today())}${E.isHead() ? ' · all your teams together' : E.isLeader() ? ' · your team' : ''}`, '')}
         ${admin ? html`<form class="filters"><label>Department<select name="departmentId"><option value="">All departments</option>${depts.map((d) => html`<option value="${d.id}">${d.name}</option>`)}</select></label></form>` : ''}
         <div id="dash"></div>`);
       const load = async () => {
