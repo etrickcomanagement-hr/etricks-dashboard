@@ -213,3 +213,31 @@ input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
 .hist .item .d { color: var(--muted); font-size: 12.5px; }
 .pos { color: var(--accent); }
 .neg { color: var(--danger); }
+
+
+/* ---------- smoothness ---------- */
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+button, a, select, label { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.btn:active { transform: translateY(1px) scale(.99); }
+.btn.working { opacity: .6; pointer-events: none; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+#view > * { animation: fadeUp .22s ease backwards; }
+.landing .hero, .landing .dept-card { animation: fadeUp .35s ease backwards; }
+.landing .dept-card:nth-child(2) { animation-delay: .04s; } .landing .dept-card:nth-child(3) { animation-delay: .08s; }
+.landing .dept-card:nth-child(4) { animation-delay: .12s; } .landing .dept-card:nth-child(5) { animation-delay: .16s; } .landing .dept-card:nth-child(6) { animation-delay: .2s; }
+.overlay { animation: fadeIn .15s ease backwards; }
+.modal { animation: popIn .2s cubic-bezier(.2, .8, .2, 1) backwards; }
+.toast { animation: fadeUp .2s ease backwards; }
+.card, .stat, .dept-card, .notif, .nav a { transition: border-color .15s, background-color .15s, transform .15s, box-shadow .15s; }
+.dept-card:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0, 0, 0, .35); }
+#results { transition: opacity .15s; }
+#results.busy { opacity: .55; pointer-events: none; }
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line2); border-top-color: var(--accent); animation: spin .7s linear infinite; display: block; }
+.skel { display: grid; gap: 12px; }
+.skel i { display: block; height: 54px; border-radius: 12px; background: linear-gradient(90deg, var(--panel) 25%, var(--panel2) 40%, var(--panel) 55%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
+.skel i:first-child { height: 90px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

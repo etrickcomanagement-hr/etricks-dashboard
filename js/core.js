@@ -118,6 +118,9 @@
     };
   };
 
+  // Grey placeholder shown while a page loads (feels faster than a blank screen).
+  E.skeleton = () => html`<div class="skel"><i></i><i></i><i></i><i></i></div>`;
+
   E.toast = (msg, kind = '') => {
     const t = document.createElement('div');
     t.className = `toast ${kind}`;
@@ -175,7 +178,9 @@
       const btn = e.target.closest('[data-act]');
       if (!btn || !el.contains(btn) || !el._acts[btn.dataset.act]) return;
       if (btn.tagName === 'A') e.preventDefault();
-      try { await el._acts[btn.dataset.act](btn.dataset.id, btn); } catch (ex) { E.toast(ex.message, 'bad'); }
+      if (btn._busy) return;
+      btn._busy = true; btn.classList.add('working');
+      try { await el._acts[btn.dataset.act](btn.dataset.id, btn); } catch (ex) { E.toast(ex.message, 'bad'); } finally { btn._busy = false; btn.classList.remove('working'); }
     });
   };
 
@@ -222,15 +227,20 @@
       defs.unshift({ name: 'departmentId', label: 'Department', type: 'select', options: [{ value: '', label: 'All departments' }, ...idOpts(await E.departments())] });
     }
     E.mount(el, html`${E.pageHead(title, subtitle, html`${csv ? html`<button class="btn" type="button" data-x="export">⬇ Export CSV</button>` : ''}${actions}`)}
-      <form class="filters">${defs.map((f) => E.field({ ...f, full: false }))}</form><div id="results"></div>`);
+      <form class="filters">${defs.map((f) => E.field({ ...f, full: false }))}</form><div id="results">${E.skeleton()}</div>`);
     const form = E.$('.filters', el);
     const results = E.$('#results', el);
     const values = () => E.readForm(form);
+    let seq = 0;
     const refresh = async () => {
+      const mine = ++seq;
+      results.classList.add('busy');
       try {
-        E.mount(results, await load(values()));
+        const out = await load(values());
+        if (mine !== seq) return;
+        E.mount(results, out);
         if (bind) bind(results, refresh, values());
-      } catch (ex) { E.mount(results, html`<div class="error">${ex.message}</div>`); }
+      } catch (ex) { if (mine === seq) E.mount(results, html`<div class="error">${ex.message}</div>`); } finally { if (mine === seq) results.classList.remove('busy'); }
     };
     let timer;
     form.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(refresh, 250); });
@@ -242,7 +252,7 @@
 
   // ---------- page registry ----------
   // E.page({ id, title, icon, roles: ['admin','leader','member'], group, order, subtitle?, render(el) })
-  E.page = (def) => E.pages.push({ order: 100, group: '', icon: '•', ...def, module: E.currentModule });
+  E.page = (def) => E.pages.push({ order: 100, group: '', icon: '•', ...def, module: document.currentScript?.dataset.module || E.currentModule });
 
   // Logo: uses /img/logo.png when present, otherwise the built-in shield mark.
   E.logo = (big = false) => html`<span class="logo ${big ? 'big' : ''}"><img class="logo-img" src="/img/logo.png" alt="eTricks">

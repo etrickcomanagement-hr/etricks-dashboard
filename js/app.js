@@ -9,19 +9,25 @@
   const LOGOS = new Set(['ebay', 'tiktok', 'etsy', 'walmart', 'shopify', 'amazon']);
   let routeHandler = null;
 
-  const loadScript = (src) => new Promise((resolve, reject) => {
+  // The page carries a version (changes with every deploy) so cached files are never stale.
+  const V = document.documentElement.dataset.v || 'dev';
+  // Scripts added this way download at the same time but run in the order they were added (async = false).
+  const loadScript = (src, moduleId) => new Promise((resolve) => {
     if (loadedScripts.has(src)) return resolve();
     const s = document.createElement('script');
-    s.src = src;
+    s.src = `${src}?v=${V}`;
+    s.async = false;
+    if (moduleId) s.dataset.module = moduleId;
     s.onload = () => { loadedScripts.add(src); resolve(); };
-    s.onerror = () => reject(new Error(`Could not load ${src}`));
+    s.onerror = () => resolve(); // a module without screens
     document.head.append(s);
   });
 
   // ---------------- landing ----------------
   async function showLanding() {
     document.title = `${E.settings.companyName || 'eTricks'} Hub`;
-    const depts = await E.get('/api/public/departments');
+    const depts = await (showLanding.prefetch || E.get('/api/public/departments'));
+    showLanding.prefetch = null;
     E.mount(app, html`<div class="landing">
       <header><span></span><button class="btn" data-portal="admin">Admin portal</button></header>
       <main>
@@ -115,6 +121,7 @@
   }
 
   async function pollNotifications() {
+    if (document.hidden && notifLastId !== null) return;
     try {
       const d = await E.get('/api/notifications?limit=30');
       const fresh = notifLastId === null ? [] : d.items.filter((n) => n.id > notifLastId && !n.readAt);
@@ -305,7 +312,7 @@
     stopNotifications();
     pollNotifications();
     swRegistration().then(syncPush).catch(() => {}).finally(renderPushBanner);
-    notifTimer = setInterval(pollNotifications, 20000);
+    notifTimer = setInterval(pollNotifications, 30000);
     E.$('#side').onclick = (e) => { if (e.target.closest('a')) E.$('#side').classList.remove('open'); };
 
     const go = async () => {
@@ -316,7 +323,7 @@
       document.title = `${page.title} - ${E.settings.companyName || 'eTricks'}`;
       const view = E.$('#view');
       view._acts = {}; // drop click handlers from the previous page
-      E.mount(view, html`<div class="muted">Loading…</div>`);
+      E.mount(view, E.skeleton());
       try { await page.render(view); } catch (ex) { E.mount(view, html`<div class="error">${ex.message}</div>`); }
     };
     if (routeHandler) window.removeEventListener('hashchange', routeHandler);
@@ -328,21 +335,19 @@
   // ---------------- boot ----------------
   async function boot() {
     try {
-      const pub = await E.get('/api/public/settings');
-      E.settings.companyName = pub.companyName;
-      const { user } = await E.get('/api/auth/me');
+      showLanding.prefetch = E.get('/api/public/departments').catch(() => null); // started now, used only if nobody is signed in
+      const me = await E.get('/api/auth/me');
+      const user = me.user;
       E.user = user;
-      if (!user) { stopNotifications(); app.onclick = null; await showLanding(); return; }
+      if (me.companyName !== undefined) E.settings.companyName = me.companyName;
+      else E.settings.companyName = (await E.get('/api/public/settings')).companyName; // older server
+      if (!user) { stopNotifications(); app.onclick = null; if (!(await showLanding.prefetch)) showLanding.prefetch = null; await showLanding(); return; }
 
-      const [mods, settings] = await Promise.all([E.get('/api/modules'), E.get('/api/settings')]);
+      const [mods, settings] = me.modules && me.settings ? [me.modules, me.settings] : await Promise.all([E.get('/api/modules'), E.get('/api/settings')]);
       Object.assign(E.settings, settings);
       E.enabled = new Set(mods.filter((m) => m.enabled).map((m) => m.id));
       E.modules = mods;
-      for (const m of mods.filter((x) => x.enabled && x.ui)) {
-        E.currentModule = m.id;
-        try { await loadScript(m.ui); } catch { /* this module has no screens (for example sign-in) */ }
-      }
-      E.currentModule = null;
+      await Promise.all(mods.filter((x) => x.enabled && x.ui).map((m) => loadScript(m.ui, m.id)));
       app.onclick = null;
       showShell();
     } catch (ex) {
