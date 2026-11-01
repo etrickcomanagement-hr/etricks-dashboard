@@ -27,6 +27,8 @@
             ${E.stat('Not marked yet', d.today.notMarked, { cls: d.today.notMarked ? 'bad' : '' })}
             ${E.stat('Attendance to approve', d.pending.attendance, { cls: d.pending.attendance ? 'accent' : '' })}
             ${E.stat('Leave requests pending', d.pending.leave, { cls: d.pending.leave ? 'accent' : '' })}
+            ${E.stat('Tasks to review', d.pending.tasks ?? 0, { cls: d.pending.tasks ? 'accent' : '' })}
+            ${E.stat('Complaints to answer', d.pending.issues ?? 0, { cls: d.pending.issues ? 'accent' : '' })}
           </div>
           <div class="stats">
             ${E.stat('Open tasks', d.tasks.open)}
@@ -88,7 +90,6 @@
     { label: 'Tasks done', class: 'num', render: (r) => `${r.tasksDone}/${r.tasksTotal}` },
     { label: 'Completion', render: (r) => E.meter(r.taskRate, 80, 50) },
     { label: 'Overdue', class: 'num', key: 'tasksOverdue' },
-    { label: 'Units', class: 'num', render: (r) => fmt.num(r.units) },
     { label: 'Rating', class: 'num', render: (r) => r.avgRating ?? '-' },
     { label: 'Score', class: 'num', render: (r) => scoreBadge(r.score) },
   ];
@@ -135,8 +136,8 @@
         <button class="btn sm no-print" type="button" data-act="print">🖨 Print</button></div>
       <div class="stats" style="margin-top:16px">
         ${E.stat('Attendance', m ? fmt.pct(m.attendanceRate) : '-', { cls: 'accent', sub: m ? `${m.presentDays} present · ${m.absentDays} absent · ${m.lateCount} late · ${m.leaveDays} leave` : '' })}
-        ${E.stat('Orders taken', fmt.num(o.orders), { sub: `${o.entries} report${o.entries === 1 ? '' : 's'}` })}
-        ${E.stat('Sales', fmt.money(o.sales), { cls: 'accent' })}${E.stat('Investment', fmt.money(o.investment))}
+        ${E.stat('Orders received', fmt.num(o.orders), { sub: `${o.entries} report${o.entries === 1 ? '' : 's'}` })}
+        ${E.stat('Total sales', fmt.money(o.sales), { cls: 'accent' })}${E.stat('Purchasing cost', fmt.money(o.investment))}
         ${E.stat('Profit', fmt.money(o.profit), { cls: o.profit < 0 ? 'bad' : 'accent' })}
         ${E.stat('Tasks done', m ? `${m.tasksDone}/${m.tasksTotal}` : '-', { sub: m && m.tasksOverdue ? `${m.tasksOverdue} overdue` : '' })}
         ${E.stat('Complaints', rep.complaints.length, { cls: openC ? 'bad' : '', sub: openC ? `${openC} still open` : 'none open' })}
@@ -148,11 +149,11 @@
         { label: 'Complaint', class: 'wrap', render: (c) => html`<b>${c.category}</b> <span class="badge ${sevKind[c.severity]}">${fmt.label(c.severity)}</span><div>${c.description}</div><div class="muted small">Filed by ${c.filedBy}</div>${c.memberResponse ? html`<div class="muted small">Member's reply: “${c.memberResponse}”</div>` : ''}${c.resolutionNote ? html`<div class="muted small">Action: ${c.resolutionNote}</div>` : ''}` },
         { label: 'Status', render: (c) => html`<span class="badge ${compKind[c.status]}">${fmt.label(c.status)}</span>` },
       ], rep.complaints, 'No complaints in this period.')}
-      <h3 style="margin:18px 0 8px">Orders & sales reported</h3>
+      <h3 style="margin:18px 0 8px">Daily reports (orders & sales)</h3>
       ${E.table([
-        { label: 'Date', render: (x) => fmt.date(x.date) }, { label: 'Store', render: (x) => x.store || '-' }, { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) },
-        { label: 'Investment', class: 'num', render: (x) => fmt.money(x.investment) }, { label: 'Sales', class: 'num', render: (x) => fmt.money(x.revenue) }, { label: 'Profit', class: 'num', render: (x) => profit(x.profit) },
-      ], o.rows, 'No orders reported in this period.')}
+        { label: 'Date', render: (x) => fmt.date(x.date) }, { label: 'Market', render: (x) => x.market || '-' }, { label: 'Store Name', render: (x) => x.store || '-' }, { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) },
+        { label: 'Purchasing cost', class: 'num', render: (x) => fmt.money(x.investment) }, { label: 'Total sales', class: 'num', render: (x) => fmt.money(x.revenue) }, { label: 'Profit', class: 'num', render: (x) => profit(x.profit) },
+      ], o.rows, 'No daily reports in this period.')}
       <h3 style="margin:18px 0 8px">Attendance</h3>
       ${E.table([
         { label: 'Date', render: (a) => fmt.date(a.date) }, { label: 'Status', render: (a) => E.badge(a.status) }, { label: 'In', render: (a) => fmt.time(a.checkIn) },
@@ -190,8 +191,8 @@
           return E.table([
             { label: 'Member', render: (x) => html`<a href="#" data-act="report" data-id="${x.employeeId}"><b>${x.name}</b></a>${x.role !== 'member' ? html` <span class="badge ${x.role === 'hod' ? 'info' : 'ok'}">${E.roleLabel[x.role]}</span>` : ''}<div class="muted small">${x.empCode} · ${x.teamName || 'No team'}${E.isAdmin() ? ` · ${x.departmentName}` : ''}</div>` },
             { label: 'Attendance', render: (x) => E.meter(x.attendanceRate, 90, 75) },
-            { label: 'Orders', class: 'num', render: (x) => fmt.num(x.ordersTaken) }, { label: 'Investment', class: 'num', render: (x) => fmt.money(x.investment) },
-            { label: 'Sales', class: 'num', render: (x) => fmt.money(x.sales) }, { label: 'Profit', class: 'num', render: (x) => profit(x.profit) },
+            { label: 'Orders', class: 'num', render: (x) => fmt.num(x.ordersTaken) }, { label: 'Purchasing cost', class: 'num', render: (x) => fmt.money(x.investment) },
+            { label: 'Total sales', class: 'num', render: (x) => fmt.money(x.sales) }, { label: 'Profit', class: 'num', render: (x) => profit(x.profit) },
             { label: 'Tasks', class: 'num', render: (x) => `${x.tasksDone}/${x.tasksTotal}` },
             { label: 'Complaints', render: (x) => (x.complaints || x.openComplaints ? html`<span class="badge ${x.openComplaints ? 'bad' : 'warn'}">${x.complaints} · ${x.openComplaints} open</span>` : html`<span class="muted">None</span>`) },
             { label: 'Score', class: 'num', render: (x) => scoreBadge(x.score) },

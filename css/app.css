@@ -241,3 +241,17 @@ button, a, select, label { -webkit-tap-highlight-color: transparent; touch-actio
 .skel i { display: block; height: 54px; border-radius: 12px; background: linear-gradient(90deg, var(--panel) 25%, var(--panel2) 40%, var(--panel) 55%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
 .skel i:first-child { height: 90px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+/* ---------- task review / complaint threads ---------- */
+.feedback { margin-top: 6px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); font-size: 13px; white-space: normal; }
+.feedback.warn { border-color: var(--warn); } .feedback.bad { border-color: var(--danger); }
+.thread { display: grid; gap: 10px; margin: 12px 0; }
+.msg { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); max-width: 92%; }
+.msg.mine { justify-self: end; border-color: rgba(168, 255, 90, .35); background: rgba(168, 255, 90, .07); }
+.msg .who { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+.msg .body { white-space: pre-wrap; word-break: break-word; }
+.tabs { display: flex; gap: 6px; margin: 0 0 16px; flex-wrap: wrap; }
+.tabs button { background: var(--panel2); border: 1px solid var(--line2); color: var(--muted); padding: 8px 14px; border-radius: 999px; cursor: pointer; font-weight: 600; }
+.tabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.attach { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.attach a { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); text-decoration: none; font-size: 13px; }

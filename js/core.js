@@ -62,7 +62,7 @@
   const BADGE = {
     present: 'ok', approved: 'ok', done: 'ok', active: 'ok', late: 'warn', pending: 'warn', half_day: 'warn', in_progress: 'info', todo: '',
     absent: 'bad', rejected: 'bad', blocked: 'bad', inactive: 'bad', terminated: 'bad', resigned: 'bad', cancelled: '', leave: 'info', urgent: 'bad', high: 'warn',
-    medium: 'info', low: '',
+    medium: 'info', low: '', pending_approval: 'warn', changes_requested: 'info', in_review: 'info', resolved: 'ok', closed: '', open: 'warn',
   };
   E.badge = (value, kind) => html`<span class="badge ${kind ?? BADGE[value] ?? ''}">${E.fmt.label(value)}</span>`;
   E.meter = (pct, goodAt = 80, warnAt = 60) => {
