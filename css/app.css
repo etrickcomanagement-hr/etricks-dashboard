@@ -255,3 +255,6 @@ button, a, select, label { -webkit-tap-highlight-color: transparent; touch-actio
 .tabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .attach { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 .attach a { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); text-decoration: none; font-size: 13px; }
+
+.actionbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.infobar { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); font-size: 13px; }

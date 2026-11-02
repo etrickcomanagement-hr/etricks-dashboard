@@ -69,11 +69,11 @@
     id: 'my-attendance', title: 'My Attendance', icon: '☰', roles: E.SELF, group: E.myGroup, order: 10,
     async render(el) {
       await E.listPage(el, {
-        title: 'My attendance', subtitle: `Your check-ins, breaks and approval status. ${E.user.role === 'member' ? 'Your team leader' : 'The admin'} approves them.`,
+        title: 'My attendance', subtitle: E.user.role === 'member' ? 'Your check-ins, breaks and approval status. Your team leader approves them.' : 'Your check-ins and breaks. As a team leader or head you need no approval: your attendance is recorded automatically.',
         filters: [{ name: 'from', label: 'From', type: 'date', value: E.monthStart() }, { name: 'to', label: 'To', type: 'date', value: E.today() }],
         load: async (f) => {
           const rows = await E.get(`/api/attendance/me${E.qs(f)}`);
-          return html`<div class="stats">${E.stat('Days recorded', rows.length)}${E.stat('Late', rows.filter((r) => r.status === 'late').length)}${E.stat('Awaiting approval', rows.filter((r) => r.approval === 'pending').length)}</div>
+          return html`<div class="stats">${E.stat('Days recorded', rows.length)}${E.stat('Late', rows.filter((r) => r.status === 'late').length)}${E.user.role === 'member' ? E.stat('Awaiting approval', rows.filter((r) => r.approval === 'pending').length) : ''}</div>
             ${E.table([
               { label: 'Date', render: (r) => fmt.date(r.date) }, { label: 'Status', render: (r) => E.badge(r.status) },
               { label: 'In', render: (r) => fmt.time(r.checkIn) }, { label: 'Out', render: (r) => fmt.time(r.checkOut) },
@@ -104,7 +104,9 @@
   const teamFilter = (teams) => ({ name: 'teamId', label: 'Team', type: 'select', options: [{ value: '', label: 'All teams' }, ...teams.map((t) => ({ value: t.id, label: E.isAdmin() ? `${t.departmentName} · ${t.name}` : t.name }))] });
   const roleTag = (r) => (r.role === 'member' ? '' : html` <span class="badge ${r.role === 'hod' ? 'info' : 'ok'}">${E.roleLabel[r.role]}</span>`);
   // Buttons appear only for people the viewer may decide on; leaders' and heads' days are checked by the admin.
-  const approvalNote = (r) => (r.canApprove || E.isAdmin() ? '' : html`<span class="muted small">Admin approves</span>`);
+  const approvalNote = () => '';
+  // Team leaders and heads need no approval: their attendance is recorded as approved automatically.
+  const approvalCell = (rec, role) => (rec ? html`${E.badge(rec.approval)}${role !== 'member' ? html`<div class="muted small">No approval needed</div>` : ''}` : '-');
 
   E.page({
     id: 'attendance', title: 'Attendance', icon: '✔', roles: E.MANAGE, group: 'People', order: 20,
@@ -128,7 +130,7 @@
               { label: 'Status', render: (r) => (r.record ? html`${E.badge(r.record.status)}${r.record.onBreak ? html` <span class="badge info">On break</span>` : ''}` : r.onLeave ? E.badge('leave') : html`<span class="badge bad">Not marked</span>`) },
               { label: 'In', render: (r) => fmt.time(r.record?.checkIn) }, { label: 'Out', render: (r) => fmt.time(r.record?.checkOut) },
               { label: 'Break', render: (r) => (r.record ? html`${fmt.dur(r.record.breakMinutes)}${r.record.overBreak ? html` <span class="badge bad">Over</span>` : ''}` : '-') },
-              { label: 'Worked', render: (r) => fmt.dur(r.record?.workedMinutes) }, { label: 'Approval', render: (r) => (r.record ? E.badge(r.record.approval) : '-') },
+              { label: 'Worked', render: (r) => fmt.dur(r.record?.workedMinutes) }, { label: 'Approval', render: (r) => approvalCell(r.record, r.role) },
               { label: '', class: 'right', render: (r) => html`<div class="actions">${approvalNote(r)}
                 ${r.canApprove && r.record?.approval !== 'approved' && r.record ? html`<button class="btn sm primary" data-act="ok" data-id="${r.record.id}">Approve</button>` : ''}
                 ${r.canApprove && r.record && r.record.approval === 'pending' ? html`<button class="btn sm danger" data-act="no" data-id="${r.record.id}">Reject</button>` : ''}
@@ -173,7 +175,7 @@
           { label: 'Status', render: (r) => E.badge(r.status) }, { label: 'In', render: (r) => fmt.time(r.checkIn) }, { label: 'Out', render: (r) => fmt.time(r.checkOut) },
           { label: 'Break', render: (r) => html`${fmt.dur(r.breakMinutes)}${r.overBreak ? html` <span class="badge bad">Over</span>` : ''}` },
           { label: 'Worked', render: (r) => fmt.dur(r.workedMinutes) },
-          { label: 'Approval', render: (r) => html`${E.badge(r.approval)}${r.decidedBy ? html`<div class="muted small">${r.decidedBy}</div>` : ''}` },
+          { label: 'Approval', render: (r) => html`${E.badge(r.approval)}${r.role !== 'member' ? html`<div class="muted small">No approval needed</div>` : r.decidedBy ? html`<div class="muted small">${r.decidedBy}</div>` : ''}` },
           { label: '', class: 'right', render: (r) => (r.approval === 'pending' ? (r.canApprove ? html`<div class="actions"><button class="btn sm primary" data-act="ok" data-id="${r.id}">Approve</button><button class="btn sm danger" data-act="no" data-id="${r.id}">Reject</button></div>` : approvalNote(r)) : '') },
         ], await E.get(`/api/attendance${E.qs(f)}`), 'No records for these filters.'),
         bind: (box, refresh) => E.actions(box, {
