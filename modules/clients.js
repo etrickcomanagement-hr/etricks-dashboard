@@ -84,8 +84,10 @@
   }
 
   // Page that refreshes itself quietly while it is open.
+  const freshTimers = {};
   const keepFresh = (id, refresh, ms) => {
-    const t = setInterval(() => { if (location.hash !== `#/${id}` || !document.getElementById('view')) clearInterval(t); else refresh(true); }, ms);
+    clearInterval(freshTimers[id]);
+    const t = freshTimers[id] = setInterval(() => { if (location.hash !== `#/${id}` || !document.getElementById('view')) clearInterval(t); else refresh(true); }, ms);
   };
 
   // ====================================================================================
@@ -345,8 +347,20 @@
           <p class="muted small">This month: ${fmt.num(d.month.orders)} orders · investment ${money(d.month.investment)} · sales ${money(d.month.sales)} · revenue ${money(d.month.revenue)}</p>`);
         E.$('#range', el).addEventListener('change', (ev) => { const f = E.readForm(ev.currentTarget); if (f.from && f.to) draw(f.from, f.to).catch((ex) => E.toast(ex.message, 'bad')); });
       };
-      E.actions(el, { refresh: () => { const f = E.$('#range', el) ? E.readForm(E.$('#range', el)) : {}; return draw(f.from, f.to); } });
+      const current = () => { const f = E.$('#range', el) ? E.readForm(E.$('#range', el)) : {}; return [f.from, f.to]; };
+      E.actions(el, { refresh: () => draw(...current()) });
       await draw();
+      let seen = '';
+      const timer = setInterval(async () => {
+        if (!el.isConnected || location.hash !== '#/portal-sales') { clearInterval(timer); return; }
+        if (document.querySelector('.overlay') || el.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+        try {
+          const d = await load(...current());
+          const sig = `${d.total.orders}|${d.total.sales}|${d.total.investment}|${d.today.orders}|${d.today.sales}|${d.days.length}`;
+          if (seen && sig !== seen) { const y = window.scrollY; await draw(...current()); window.scrollTo(0, y); E.toast('Your sales were updated'); }
+          seen = sig;
+        } catch { /* try again next time */ }
+      }, 30000);
     },
   });
 

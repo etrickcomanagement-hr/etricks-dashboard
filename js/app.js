@@ -279,7 +279,8 @@
       alertSeen = sig;
     } catch { /* offline or signed out: try again */ }
   }
-  const startAlerts = () => { clearInterval(alertTimer); alertSeen = ''; if (E.enabled.has('clients')) { pollAlerts(); alertTimer = setInterval(pollAlerts, 6000); } };
+  let alertTick = 0;
+  const startAlerts = () => { clearInterval(alertTimer); alertSeen = ''; if (E.enabled.has('clients')) { pollAlerts(); alertTimer = setInterval(() => { if (!document.hidden || ++alertTick % 4 === 0) pollAlerts(); }, 6000); } };
   const stopAlerts = () => { clearInterval(alertTimer); alertTimer = null; alertSeen = ''; renderAlertBar(null); };
 
   function pushStatusHtml() {
