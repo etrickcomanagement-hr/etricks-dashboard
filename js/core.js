@@ -232,9 +232,9 @@
     const results = E.$('#results', el);
     const values = () => E.readForm(form);
     let seq = 0;
-    const refresh = async () => {
+    const refresh = async (quiet) => {
       const mine = ++seq;
-      results.classList.add('busy');
+      if (quiet !== true) results.classList.add('busy'); // a quiet refresh (timer) updates in the background without dimming
       try {
         const out = await load(values());
         if (mine !== seq) return;

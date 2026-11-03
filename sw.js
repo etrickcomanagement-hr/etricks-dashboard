@@ -19,6 +19,8 @@ self.addEventListener('push', (event) => {
       badge: '/img/favicon.png',
       tag: `etricks-${data.id || Date.now()}`, // same id never shows twice
       data: { link: data.link || '#/dashboard' },
+      // An alert stays on the screen until somebody taps it, and vibrates the phone.
+      ...(data.urgent ? { requireInteraction: true, renotify: true, vibrate: [300, 120, 300, 120, 600] } : {}),
     });
   })());
 });

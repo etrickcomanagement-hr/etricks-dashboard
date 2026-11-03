@@ -41,6 +41,7 @@
             <button class="btn primary" data-portal="hod" data-dept="${d.id}"><span>Head of Department Portal</span><span>→</span></button>
             <button class="btn" data-portal="leader" data-dept="${d.id}"><span>Team Leader Portal</span><span>→</span></button>
             <button class="btn" data-portal="member" data-dept="${d.id}"><span>Team Member Portal</span><span>→</span></button>
+            <button class="btn client-btn" data-portal="client" data-dept="${d.id}"><span>Client Portal</span><span>→</span></button>
           </div></div>`)}</div>
       </main>
       <footer>${E.settings.companyName || 'eTricks'} internal system. Authorised staff only. All activity is logged.</footer></div>`);
@@ -53,9 +54,22 @@
   }
 
   function openLogin(portal, dept) {
-    const titles = { admin: 'Admin portal', hod: `Head of Department Portal - ${dept?.name}`, leader: `Team Leader Portal - ${dept?.name}`, member: `Team Member Portal - ${dept?.name}` };
+    const titles = { client: `Client Portal - ${dept?.name}`, admin: 'Admin portal', hod: `Head of Department Portal - ${dept?.name}`, leader: `Team Leader Portal - ${dept?.name}`, member: `Team Member Portal - ${dept?.name}` };
     const who = { hod: 'Your password was set by the admin.', leader: 'Your password was set by your head of department.' };
     const finish = async (close) => { close(); await boot(); };
+
+    if (portal === 'client') {
+      E.modal({
+        title: titles.client, submit: 'Sign in',
+        body: html`<div class="form">${E.field({ name: 'username', label: 'Client ID', required: true, full: true, attrs: 'autocomplete="username" autocapitalize="off" spellcheck="false"', help: 'The ID and password you received from eTricks.' })}
+          ${E.field({ name: 'password', label: 'Password', type: 'password', required: true, full: true, attrs: 'autocomplete="current-password"' })}</div>`,
+        onSubmit: async (v, { close }) => {
+          await E.post('/api/auth/login', { portal: 'client', departmentId: dept.id, username: v.username, password: v.password });
+          await finish(close);
+        },
+      });
+      return;
+    }
 
     if (portal !== 'member') {
       E.modal({
@@ -95,8 +109,8 @@
   }
 
   // ---------------- shell ----------------
-  const GROUP_ORDER = ['', 'My work', 'People', 'Operations', 'Insights', 'Administration'];
-  const ROLE_NAME = { admin: 'Admin', hod: 'Head of Department', leader: 'Team Leader', member: 'Team Member' };
+  const GROUP_ORDER = ['', 'My work', 'People', 'Operations', 'Clients', 'Insights', 'Administration'];
+  const ROLE_NAME = { admin: 'Admin', hod: 'Head of Department', leader: 'Team Leader', member: 'Team Member', client: 'Client' };
   // A page's group may depend on who is looking (personal pages are 'My work' for leaders and heads, ungrouped for members).
   const groupOf = (p) => (typeof p.group === 'function' ? p.group(E.user.role) : p.group);
 
@@ -104,7 +118,7 @@
   let notifTimer = null;
   let notifLastId = null;
   let notifItems = [];
-  const stopNotifications = () => { clearInterval(notifTimer); notifTimer = null; notifLastId = null; notifItems = []; };
+  const stopNotifications = () => { clearInterval(notifTimer); notifTimer = null; notifLastId = null; notifItems = []; stopAlerts(); };
 
   const ago = (iso) => {
     const s = Math.max(1, Math.round((Date.now() - new Date(iso)) / 1000));
@@ -204,17 +218,69 @@
     return push.active ? 'on' : 'off';
   }
 
-  function beep() {
+  // urgent = three higher, louder beeps (a client alert); otherwise one soft beep
+  function beep(urgent = false) {
     try {
       const ctx = (beep.ctx ||= new (window.AudioContext || window.webkitAudioContext)());
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.type = 'sine'; o.frequency.value = 880;
-      g.gain.setValueAtTime(0.0001, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-      o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.4);
+      const pulses = urgent === true ? 3 : 1;
+      for (let i = 0; i < pulses; i++) {
+        const t0 = ctx.currentTime + i * 0.42;
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.type = urgent === true ? 'square' : 'sine'; o.frequency.value = urgent === true ? 1040 : 880;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(urgent === true ? 0.22 : 0.15, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+        o.connect(g).connect(ctx.destination); o.start(t0); o.stop(t0 + 0.4);
+      }
     } catch { /* sound is optional */ }
   }
+  E.beep = beep;
+
+  // ---------------- client alerts: a loud, always-visible warning ----------------
+  // Staff: a client is waiting for an answer. Client: eTricks sent an urgent alert. Checked every few seconds.
+  let alertTimer = null;
+  let alertSeen = '';
+  const onPage = (id) => location.hash === `#/${id}`;
+  function renderAlertBar(info) {
+    const el = E.$('#alertBar');
+    if (!el) return;
+    document.title = document.title.replace(/^🚨 /, '');
+    if (!info) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    E.mount(el, html`<div class="alertbar"><span>🚨 <b>${info.text}</b></span><a class="btn sm primary" href="${info.link}">${info.cta}</a></div>`);
+    document.title = `🚨 ${document.title}`;
+  }
+  function setNavBadge(page, n) {
+    const a = E.$(`.nav a[data-page="${page}"]`);
+    if (!a) return;
+    let b = E.$('.navbadge', a);
+    if (!n) { b?.remove(); return; }
+    if (!b) { b = document.createElement('span'); b.className = 'navbadge'; a.append(b); }
+    b.textContent = n;
+  }
+  async function pollAlerts() {
+    try {
+      if (!E.user) return;
+      if (E.user.role === 'client') {
+        const s = await E.get('/api/portal/summary');
+        setNavBadge('portal-alerts', s.alert); setNavBadge('portal-chat', s.inquiry);
+        renderAlertBar(s.alert ? { text: 'eTricks sent you an urgent alert. Please open it now.', link: '#/portal-alerts', cta: 'Open the alert' } : null);
+        const sig = `c${s.alert}`;
+        if (s.alert && sig !== alertSeen && !onPage('portal-alerts')) beep(true);
+        alertSeen = sig;
+        return;
+      }
+      const s = await E.get('/api/client-alerts/summary');
+      setNavBadge('client-alerts', s.alerts); setNavBadge('client-chat', s.inquiries);
+      const names = s.items.map((i) => i.username).join(', ');
+      renderAlertBar(s.alerts ? { text: `${s.alerts} client alert${s.alerts === 1 ? '' : 's'} waiting for an immediate reply: ${names}`, link: '#/client-alerts', cta: 'Answer now' } : null);
+      const sig = s.items.map((i) => `${i.clientId}:${i.since}`).join('|');
+      if (s.alerts && sig !== alertSeen) { beep(true); E.toast(`🚨 Client alert: ${names}`, 'bad'); }
+      alertSeen = sig;
+    } catch { /* offline or signed out: try again */ }
+  }
+  const startAlerts = () => { clearInterval(alertTimer); alertSeen = ''; if (E.enabled.has('clients')) { pollAlerts(); alertTimer = setInterval(pollAlerts, 6000); } };
+  const stopAlerts = () => { clearInterval(alertTimer); alertTimer = null; alertSeen = ''; renderAlertBar(null); };
 
   function pushStatusHtml() {
     const s = pushState();
@@ -294,7 +360,7 @@
     E.mount(app, html`<div class="shell">
       <aside class="side" id="side">
         ${E.logo()}
-        <div class="who ${u.role === 'admin' ? 'has-photo' : ''}">${u.role === 'admin' ? html`<img class="avatar" src="/img/admin.jpg" alt="">` : ''}<div><span class="muted">${ROLE_NAME[u.role]}${place ? ` · ${place}` : ''}</span><b>${u.name || u.label}</b></div></div>
+        <div class="who ${u.role === 'admin' ? 'has-photo' : ''}">${u.role === 'admin' ? html`<img class="avatar" src="/img/admin.jpg" alt="">` : ''}<div><span class="muted">${ROLE_NAME[u.role]}${place ? ` · ${place}` : ''}</span><b>${u.role === 'client' ? u.username : u.name || u.label}</b></div></div>
         <button class="btn bell" id="bell" type="button">🔔 Notifications <span class="bell-count" hidden></span></button>
         <nav class="nav">${nav}</nav>
         <div class="spacer"></div>
@@ -302,6 +368,7 @@
       </aside>
       <div>
         <div class="topbar"><button class="btn sm" id="burger" aria-label="Menu">☰</button>${E.logo()}<button class="btn sm bell" id="bell2" type="button" aria-label="Notifications">🔔<span class="bell-count" hidden></span></button></div>
+        <div id="alertBar" hidden></div>
         <div id="pushBanner"></div>
         <main class="main" id="view"></main>
       </div></div>`);
@@ -313,6 +380,7 @@
     pollNotifications();
     swRegistration().then(syncPush).catch(() => {}).finally(renderPushBanner);
     notifTimer = setInterval(pollNotifications, 30000);
+    startAlerts();
     E.$('#side').onclick = (e) => { if (e.target.closest('a')) E.$('#side').classList.remove('open'); };
 
     const go = async () => {
