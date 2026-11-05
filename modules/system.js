@@ -40,7 +40,11 @@
             ${E.field({ name: 'expenseCategories', label: 'Company expense / bill categories (one per line)', type: 'textarea', value: s.expenseCategories.join('\n') })}
             <div class="sect">Performance score weights</div>
             ${E.field({ name: 'wAtt', label: 'Attendance', type: 'number', value: s.scoreWeights.attendance })}${E.field({ name: 'wTask', label: 'Task completion', type: 'number', value: s.scoreWeights.tasks })}
-            ${E.field({ name: 'wRate', label: 'Work ratings', type: 'number', value: s.scoreWeights.rating })}</div>
+            ${E.field({ name: 'wRate', label: 'Work ratings', type: 'number', value: s.scoreWeights.rating })}
+            <div class="sect">Exchange rates (daily reports in AUD, USD and GBP)</div>
+            <p class="muted small full" style="margin:0">What 1 unit is worth in ${s.currency}. Totals that mix currencies are converted with these rates. Change them when the market moves.</p>
+            ${E.field({ name: 'fxAUD', label: `1 AUD = ${s.currency}`, type: 'number', value: s.fxRates.AUD, attrs: 'step="any" min="0.0001"' })}${E.field({ name: 'fxUSD', label: `1 USD = ${s.currency}`, type: 'number', value: s.fxRates.USD, attrs: 'step="any" min="0.0001"' })}
+            ${E.field({ name: 'fxGBP', label: `1 GBP = ${s.currency}`, type: 'number', value: s.fxRates.GBP, attrs: 'step="any" min="0.0001"' })}</div>
             <div class="foot" style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary">Save settings</button></div></form>
           <div class="grid">
             <div class="card"><h3>Admin password</h3><p class="muted">Use a long, unique password. Heads of department are set from Departments, team leaders and team passwords from Teams.</p><button class="btn" id="adminPw">Change admin password</button></div>
@@ -62,6 +66,7 @@
             companyName: v.companyName, currency: v.currency, leaveTypes: v.leaveTypes, expenseCategories: v.expenseCategories,
             weeklyOff: DAYS.map((_, i) => i).filter((i) => v[`off${i}`]),
             scoreWeights: { attendance: v.wAtt, tasks: v.wTask, rating: v.wRate },
+            fxRates: { AUD: v.fxAUD, USD: v.fxUSD, GBP: v.fxGBP },
           });
           E.toast('Settings saved');
         } catch (ex) { E.toast(ex.message, 'bad'); }
