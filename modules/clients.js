@@ -101,11 +101,84 @@
     });
   }
 
+  // "Select team members": the leader and members who work for a client. Only the people ticked here (and the head of the
+  // department and the admin) can see that client, its updates, chat and alerts.
+  function mountPicker(box, initial) {
+    const state = { list: [], picked: new Set(initial || []), note: 'Select the department first.' };
+    let seq = 0;
+    const draw = () => {
+      const n = state.list.length;
+      E.mount(box, html`<div class="muted small" style="margin-bottom:8px">Tick the people who work for this client. Only they, the head of the department and you can see its updates, chat and alerts.</div>
+        ${n ? html`<div class="row" style="margin-bottom:8px;gap:8px"><button type="button" class="btn sm" data-pick="all">Select all</button><button type="button" class="btn sm" data-pick="none">Clear</button><span class="muted small cnt"></span></div>
+          <div class="people">${state.list.map((e) => html`<label><input type="checkbox" data-pid="${e.id}" ${state.picked.has(e.id) ? E.raw('checked') : ''}>
+            <span><b>${e.name}</b> <span class="muted small">${e.empCode || ''}</span><span class="muted small"> · ${e.teamName || 'No team'}</span></span>
+            ${e.role === 'Team leader' ? html`<span class="badge ok" style="margin-left:auto">Team leader</span>` : html`<span class="badge" style="margin-left:auto">Member</span>`}</label>`)}</div>
+          <div class="small warnbox" hidden></div>`
+          : html`<div class="muted">${state.note}</div>`}`);
+      count();
+    };
+    const count = () => {
+      const c = E.$('.cnt', box); if (!c) return;
+      c.textContent = `${state.picked.size} of ${state.list.length} selected`;
+      const w = E.$('.warnbox', box);
+      w.hidden = state.picked.size > 0;
+      w.textContent = 'Nobody is selected, so only the head of the department and you will see this client.';
+    };
+    box.addEventListener('change', (ev) => {
+      const cb = ev.target.closest('input[data-pid]'); if (!cb) return;
+      const id = Number(cb.dataset.pid);
+      if (cb.checked) state.picked.add(id); else state.picked.delete(id);
+      count();
+    });
+    box.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-pick]'); if (!b) return;
+      state.picked = b.dataset.pick === 'all' ? new Set(state.list.map((e) => e.id)) : new Set();
+      for (const cb of box.querySelectorAll('input[data-pid]')) cb.checked = state.picked.has(Number(cb.dataset.pid));
+      count();
+    });
+    const show = (list, note) => {
+      state.list = list; state.note = note;
+      const ok = new Set(list.map((e) => e.id));
+      state.picked = new Set([...state.picked].filter((id) => ok.has(id))); // a person who is not on the chosen team drops out
+      draw();
+    };
+    draw();
+    return {
+      ids: () => [...state.picked],
+      preselect: (ids) => { seq++; state.picked = new Set(ids); },
+      set: (list) => show(list, 'This team has no members yet. Add people to it first.'),
+      async load(departmentId, teamId) {
+        const mine = ++seq;
+        if (!departmentId) return show([], 'Select the department first.');
+        try {
+          const list = await E.get(`/api/clients/candidates?departmentId=${departmentId}${teamId ? `&teamId=${teamId}` : ''}`);
+          if (mine === seq) show(list, 'This team has no members yet. Add people to it first.');
+        } catch (ex) { if (mine === seq) show([], ex.message); }
+      },
+    };
+  }
+
+  // Add or remove people of an existing client later (opened from the Clients list).
+  async function peopleForm(c, onSaved) {
+    const r = await E.get(`/api/clients/${c.id}/staff`);
+    const { form } = E.modal({
+      title: `Team members of ${c.username}`, submit: 'Save', wide: true,
+      body: html`<p class="muted">${c.teamName ? html`Team: <b>${c.teamName}</b>.` : html`This client is not tied to one team, so you can choose from the whole department.`} A person you remove loses access to the client's chat and updates at once.</p><div id="peopleBox"></div>`,
+      onSubmit: async (v, { close }) => {
+        const res = await E.put(`/api/clients/${c.id}/staff`, { employeeIds: picker.ids() });
+        E.toast(`Saved: ${res.total} ${res.total === 1 ? 'person' : 'people'} on this client`); close(); onSaved();
+      },
+    });
+    const picker = mountPicker(E.$('#peopleBox', form), r.candidates.filter((e) => e.chosen).map((e) => e.id));
+    picker.set(r.candidates);
+  }
+
   async function clientForm(existing, onSaved) {
     const [depts, teams] = await Promise.all([E.departments(), E.teams('')]);
     const c = existing || {};
     const teamOpts = (deptId) => [{ value: '', label: 'Whole department' }, ...teams.filter((t) => String(t.departmentId) === String(deptId)).map((t) => ({ value: t.id, label: t.name }))];
     let secretLoaded = false;
+    let picker;
     const { form } = E.modal({
       title: existing ? `Client ${c.username}` : 'Add client', wide: true, submit: existing ? 'Save' : 'Create client',
       body: html`<div class="form">
@@ -113,7 +186,9 @@
         ${existing ? E.field({ name: 'status', label: 'Status', type: 'select', value: c.status, options: [{ value: 'active', label: 'Active' }, { value: 'disabled', label: 'Disabled (cannot sign in)' }] })
           : E.field({ name: 'password', label: 'Portal password', type: 'password', required: true, help: 'At least 8 characters. You give it to the client.', attrs: 'autocomplete="new-password"' })}
         ${E.field({ name: 'departmentId', label: 'Department', type: 'select', required: true, value: c.departmentId ?? '', options: [{ value: '', label: 'Select…' }, ...E.idOptions(depts)] })}
-        ${E.field({ name: 'teamId', label: 'Team that works for this client', type: 'select', value: c.teamId ?? '', options: teamOpts(c.departmentId), help: 'Only this team (and the head of department) sees the client. Leave "Whole department" for all teams.' })}
+        ${E.field({ name: 'teamId', label: 'Team that works for this client', type: 'select', value: c.teamId ?? '', options: teamOpts(c.departmentId), help: 'Pick the team, then choose below exactly which of its people work for this client.' })}
+        <div class="sect">Select team members</div>
+        <div class="full" id="peopleBox"></div>
         <div class="sect">Private details (only the admin sees these)</div>
         ${E.field({ name: 'displayName', label: 'Client name', value: c.displayName, full: true })}
         ${E.field({ name: 'contact', label: 'Contact (phone / email)', value: c.contact, full: true })}
@@ -121,9 +196,19 @@
             ${c.hasSecret ? html`<button type="button" class="btn sm" id="showSecret">Show / edit account details</button><span class="muted small"> Every viewing is written to the activity log.</span>` : html`<button type="button" class="btn sm" id="showSecret">Add account details</button>`}
             <textarea name="secretInfo" rows="5" hidden style="margin-top:8px" placeholder="Store login, email, anything private about the account"></textarea></div>`
           : E.field({ name: 'secretInfo', label: 'Account details (store logins and other secrets)', type: 'textarea', value: '', full: true, placeholder: 'Store login, email, anything private about the account' })}</div>`,
-      onOpen: (f) => {
+      onOpen: async (f) => {
         const dept = f.elements.departmentId;
-        dept.addEventListener('change', () => E.mount(f.elements.teamId, html`${teamOpts(dept.value).map((o) => html`<option value="${o.value}">${o.label}</option>`)}`));
+        picker = mountPicker(E.$('#peopleBox', f), []);
+        const reload = () => picker.load(dept.value, f.elements.teamId.value);
+        dept.addEventListener('change', () => { E.mount(f.elements.teamId, html`${teamOpts(dept.value).map((o) => html`<option value="${o.value}">${o.label}</option>`)}`); reload(); });
+        f.elements.teamId.addEventListener('change', reload);
+        if (existing) {
+          try {
+            const r = await E.get(`/api/clients/${c.id}/staff`);
+            picker.preselect(r.candidates.filter((e) => e.chosen).map((e) => e.id));
+            picker.set(r.candidates);
+          } catch (ex) { E.toast(ex.message, 'bad'); }
+        } else reload();
         const b = E.$('#showSecret', f);
         if (b) b.onclick = async () => {
           try {
@@ -133,7 +218,7 @@
         };
       },
       onSubmit: async (v, { close }) => {
-        const body = { ...v, teamId: v.teamId || null, departmentId: Number(v.departmentId) };
+        const body = { ...v, teamId: v.teamId || null, departmentId: Number(v.departmentId), staffIds: picker.ids() };
         if (existing) {
           if (!secretLoaded) delete body.secretInfo; // untouched: keep what is stored
           await E.put(`/api/clients/${c.id}`, body);
@@ -185,17 +270,18 @@
             ${E.table([
               { label: 'Client', render: (c) => html`<b>${c.username}</b>${c.displayName ? html`<div class="muted small">${c.displayName}</div>` : ''}` },
               { label: 'Department / team', render: (c) => html`${c.departmentName}<div class="muted small">${c.teamName || 'Whole department'}</div>` },
+              { label: 'Team members', render: (c) => (c.staffCount ? html`${c.staffCount} chosen` : html`<span class="badge warn">Nobody chosen</span>`) },
               { label: 'Status', render: (c) => (c.status === 'active' ? html`<span class="badge ok">Active</span>` : html`<span class="badge bad">Disabled</span>`) },
               { label: 'Today (sales)', class: 'num', render: (c) => money(c.today.sales) }, { label: 'Total sales', class: 'num', render: (c) => money(c.total.sales) },
               { label: 'Last sign-in', render: (c) => (c.lastLoginAt ? fmt.dateTime(c.lastLoginAt) : html`<span class="muted">Never</span>`) },
               { label: 'Chat', render: (c) => html`${c.alertNeedsReply ? html`<span class="badge bad">Alert waiting</span> ` : ''}${c.inquiryNeedsReply ? html`<span class="badge warn">Message waiting</span>` : ''}${!c.alertNeedsReply && !c.inquiryNeedsReply ? html`<span class="muted">-</span>` : ''}` },
-              { label: '', class: 'right', render: (c) => html`<div class="actions"><button class="btn sm" data-act="chat" data-id="${c.id}">Chat</button><button class="btn sm" data-act="alerts" data-id="${c.id}">Alerts</button><button class="btn sm" data-act="edit" data-id="${c.id}">Edit</button><button class="btn sm" data-act="pw" data-id="${c.id}">🔑</button><button class="btn sm danger" data-act="del" data-id="${c.id}">Delete</button></div>` },
+              { label: '', class: 'right', render: (c) => html`<div class="actions"><button class="btn sm" data-act="chat" data-id="${c.id}">Chat</button><button class="btn sm" data-act="alerts" data-id="${c.id}">Alerts</button><button class="btn sm" data-act="people" data-id="${c.id}">Members</button><button class="btn sm" data-act="edit" data-id="${c.id}">Edit</button><button class="btn sm" data-act="pw" data-id="${c.id}">🔑</button><button class="btn sm danger" data-act="del" data-id="${c.id}">Delete</button></div>` },
             ], rows, 'No clients yet. Add the first one.')}`;
         },
         bind: (box, refresh) => {
           const find = (id) => rows.find((c) => String(c.id) === id);
           E.actions(box, {
-            edit: (id) => clientForm(find(id), refresh), pw: (id) => resetPassword(find(id)), del: (id) => deleteClient(find(id), refresh),
+            edit: (id) => clientForm(find(id), refresh), people: (id) => peopleForm(find(id), refresh), pw: (id) => resetPassword(find(id)), del: (id) => deleteClient(find(id), refresh),
             chat: (id) => staffChat(find(id), 'inquiry', refresh), alerts: (id) => staffChat(find(id), 'alert', refresh),
           });
         },
@@ -253,7 +339,7 @@
               <h3><span>${c.username}</span><button class="btn sm primary" data-act="addfor" data-id="${c.id}">+ Update</button></h3>
               <div class="muted small">Today</div><div><b>${fmt.num(c.today.orders)}</b> orders · <b>${money(c.today.sales)}</b> sales · revenue ${money(c.today.revenue)}</div>
               <div class="muted small" style="margin-top:8px">All time</div><div><b>${fmt.num(c.total.orders)}</b> orders · ${money(c.total.investment)} invested · <b>${money(c.total.sales)}</b> sales · revenue ${money(c.total.revenue)}</div></div>`)}</div>`
-            : html`<div class="card empty" style="margin-bottom:16px">No client is assigned to you yet. The admin creates clients and gives each one a team.</div>`}
+            : html`<div class="card empty" style="margin-bottom:16px">No client is assigned to you yet. The admin chooses which people work for each client.</div>`}
             ${E.table([
               { label: 'Date', render: (x) => fmt.date(x.date) }, { label: 'Client', render: (x) => html`<b>${x.username}</b>` },
               { label: 'Market / store', render: (x) => html`${dash(x.market)}<div class="muted small">${x.store || ''}</div>` },
