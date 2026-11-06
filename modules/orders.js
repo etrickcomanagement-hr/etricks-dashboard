@@ -60,13 +60,13 @@
         ${E.field({ name: 'currency', label: 'Currency', type: 'select', value: e.currency || 'USD', options: CUR_OPTS, required: true })}
         ${E.field({ name: 'market', label: 'Market', value: e.market, placeholder: 'e.g. Amazon US, eBay UK' })}
         ${E.field({ name: 'store', label: 'Store Name', value: e.store, placeholder: 'Your store or account' })}
-        ${ctx.clients.length || e.clientId ? E.field({ name: 'clientId', label: 'Client (the client sees this row)', type: 'select', value: e.clientId ?? '', options: [{ value: '', label: 'No client (internal only)' }, ...clientOpts(ctx.clients, e)] }) : ''}
+        ${ctx.clients.length || e.clientId ? E.field({ name: 'clientId', label: 'Client (empty = in every update; a client = only for that client)', type: 'select', value: e.clientId ?? '', options: [{ value: '', label: 'Any client' }, ...clientOpts(ctx.clients, e)] }) : ''}
         ${E.field({ name: 'orders', label: 'Orders Received', type: 'number', value: e.orders ?? '', attrs: 'min="0" step="1"', required: true })}
         ${E.field({ name: 'investment', label: 'Purchasing Cost', type: 'number', value: e.investment ?? '', attrs: 'min="0" step="0.01"' })}
         ${E.field({ name: 'revenue', label: 'Total Sales', type: 'number', value: e.revenue ?? '', attrs: 'min="0" step="0.01"' })}
         ${ctx.columns.map((c) => E.field({ name: `x_${c.id}`, label: c.label, type: c.kind === 'number' ? 'number' : 'text', value: e.extra?.[c.id] ?? '', attrs: c.kind === 'number' ? 'step="any"' : '' }))}
         ${E.field({ name: 'note', label: 'Notes / Activities', type: 'textarea', value: e.note, full: true, placeholder: 'Important updates, activities or issues about the store, account, orders or sales', attrs: 'rows="4"' })}</div>
-        <p class="muted small">${E.user.role === 'leader' ? 'Your head of department and the admin can see this.' : 'Your team leader, your head of department and the admin can see this.'} The client you pick sees the row (not the notes). You can change an entry for ${ctx.editDays || 7} days.</p>`,
+        <p class="muted small">${E.user.role === 'leader' ? 'Your head of department and the admin can see this.' : 'Your team leader, your head of department and the admin can see this.'} The client sees your sheet only when you press <b>Update client</b>. You can change an entry for ${ctx.editDays || 7} days.</p>`,
       onSubmit: async (v, { close }) => {
         const body = { extra: {} };
         for (const [k, val] of Object.entries(v)) { if (k.startsWith('x_')) body.extra[k.slice(2)] = val; else body[k] = val; }
@@ -85,13 +85,12 @@
   function columnModal(col, onDone) {
     const { form, close } = E.modal({
       title: col ? `Column "${col.label}"` : 'Add a column', submit: 'Save',
-      body: html`<p class="muted small">Your own column in your daily sheet, for anything the standard ones do not cover (up to 6). Your team leader, head and admin see it too.</p>
+      body: html`<p class="muted small">Your own column in your daily sheet, for anything the standard ones do not cover (up to 6). Your team leader, head and admin see it, and the client sees it when you press Update client.</p>
         <div class="form">${E.field({ name: 'label', label: 'Column name', value: col?.label, required: true, full: true, attrs: 'maxlength="30"' })}
-        ${E.field({ name: 'kind', label: 'Type', type: 'select', value: col?.kind || 'text', options: [{ value: 'text', label: 'Text' }, { value: 'number', label: 'Number' }], attrs: col ? 'disabled' : '' })}
-        ${E.field({ name: 'clientVisible', label: 'Show this column to the client', type: 'checkbox', value: col?.clientVisible })}</div>
+        ${E.field({ name: 'kind', label: 'Type', type: 'select', value: col?.kind || 'text', options: [{ value: 'text', label: 'Text' }, { value: 'number', label: 'Number' }], attrs: col ? 'disabled' : '' })}</div>
         ${col ? html`<div style="margin-top:14px"><button type="button" class="btn danger sm" id="delCol">Delete this column and its values</button></div>` : ''}`,
       onSubmit: async (v, { close: c }) => {
-        const body = { label: v.label, clientVisible: !!v.clientVisible, ...(col ? {} : { kind: v.kind }) };
+        const body = { label: v.label, ...(col ? {} : { kind: v.kind }) };
         if (col) await E.put(`/api/orders/columns/${col.id}`, body); else await E.post('/api/orders/columns', body);
         c(); onDone();
       },
@@ -111,7 +110,8 @@
   const STATUS = { saved: ['✓', 'Saved', 'ok'], saving: ['…', 'Saving', 'wait'], dirty: ['•', 'Not saved yet', 'wait'], error: ['⚠', 'Not saved', 'bad'], locked: ['🔒', 'Older than the editing window: ask your team leader', 'lock'], draft: ['', 'Empty row', ''] };
 
   async function mySheet(el) {
-    let state = { rows: [], columns: [], clients: [], fx: { USD: 1, AUD: 0.65, GBP: 1.27 }, editDays: 7, serverTotals: null };
+    let state = { rows: [], columns: [], clients: [], published: [], fx: { USD: 1, AUD: 0.65, GBP: 1.27 }, editDays: 7 };
+    let editing = false; // the sheet opens read-only; Edit makes it editable
     let from = E.monthStart();
     let to = E.today();
     let sort = { f: 'date', dir: 1 };
@@ -181,6 +181,7 @@
       try {
         if (r.id) await E.put(`/api/orders/${r.id}`, p.body); else r.id = (await E.post('/api/orders', p.body)).id;
         r.st = 'saved'; r.savedDate = p.body.date;
+        markStale();
       } catch (ex) {
         r.st = 'error'; r.err = ex.message;
         if (alive()) E.toast(ex.message, 'bad');
@@ -191,6 +192,23 @@
       }
     }
     const schedule = (r, ms = 800) => { if (locked(r)) return; r.st = 'dirty'; r.err = ''; clearTimeout(r.timer); r.timer = setTimeout(() => flush(r), ms); };
+    // what the client sees is the copy sent with "Update client": any change makes it out of date until the next update
+    let pubTimer;
+    const markStale = () => {
+      for (const p of state.published) p.upToDate = false;
+      if (alive()) drawPub();
+      clearTimeout(pubTimer); pubTimer = setTimeout(() => { if (alive()) refreshPub().catch(() => {}); }, 1800); // then ask the server: a change that was undone is up to date again
+    };
+    function drawPub() {
+      const n = E.$('#pubstatus', el); if (!n) return;
+      E.mount(n, state.clients.length ? html`<div class="pubstatus">${state.clients.map((c) => {
+        const p = state.published.find((x) => x.clientId === c.id);
+        if (!p) return html`<div class="pub">Client <b>${c.username}</b>: nothing sent yet. Press <b>Update client</b> to show your sheet.</div>`;
+        return p.upToDate
+          ? html`<div class="pub ok">✓ Client <b>${c.username}</b> sees your sheet as it is now (sent ${fmt.dateTime(p.publishedAt)}). <button type="button" class="btn sm" data-act="unpublish" data-id="${c.id}">Stop showing it</button></div>`
+          : html`<div class="pub warn">⚠ Client <b>${c.username}</b> still sees the sheet sent ${fmt.dateTime(p.publishedAt)}. You changed it since: press <b>Update client</b> to send it. <button type="button" class="btn sm" data-act="unpublish" data-id="${c.id}">Stop showing it</button></div>`;
+      })}</div>` : html`<div class="pubstatus"><div class="pub">No client is assigned to you, so there is nobody to update. Your leader, head and admin see your sheet live.</div></div>`);
+    }
     window.onbeforeunload = () => (pendingCount() ? 'Some changes are still being saved.' : undefined);
 
     // ---- drawing ----
@@ -224,12 +242,12 @@
     };
     const head = (f, label, extra = '') => html`<th class="${SORTABLE.includes(f) ? 'sortable' : ''} ${extra}" data-sort="${SORTABLE.includes(f) ? f : ''}">${label}${sort.f === f ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
     function rowHtml(r) {
-      const dis = locked(r);
+      const dis = locked(r) || !editing;
       const ro = dis ? E.raw('readonly') : '';
       const text = (f, cls = '') => html`<td><input class="cell ${cls}" data-f="${f}" value="${r[f]}" ${ro} autocomplete="off"></td>`;
       const sel = (f, opts) => html`<td><select class="cell" data-f="${f}" ${dis ? E.raw('disabled') : ''}>${opts.map((o) => html`<option value="${o.value}" ${String(o.value) === String(r[f]) ? E.raw('selected') : ''}>${o.label}</option>`)}</select></td>`;
       const num = (f) => html`<td class="num"><input class="cell num" data-f="${f}" value="${r[f]}" inputmode="decimal" ${ro} autocomplete="off" placeholder="0"></td>`;
-      return html`<tr data-k="${r.k}" class="${dis ? 'locked' : ''}">
+      return html`<tr data-k="${r.k}" class="${locked(r) ? 'locked' : ''}">
         <td><input class="cell" type="date" data-f="date" value="${r.date}" max="${E.today()}" ${ro}></td>${text('market')}${text('store')}
         ${state.clients.length || r.clientId ? sel('clientId', [{ value: '', label: '-' }, ...clientOpts(state.clients, r)]) : ''}
         ${sel('currency', CUR_OPTS)}${num('orders')}${num('investment')}${num('revenue')}
@@ -242,11 +260,11 @@
       const rows = [...state.rows].sort(cmp);
       const showClient = state.clients.length || state.rows.some((r) => r.clientId);
       E.mount(box, html`<div class="sheetwrap"><table class="sheet">
-        <thead><tr>${head('date', 'Date')}${head('market', 'Market')}${head('store', 'Store name')}${showClient ? html`<th>Client</th>` : ''}<th>Currency</th>${head('orders', 'Orders received', 'num')}${head('investment', 'Purchasing cost', 'num')}${head('revenue', 'Total sales', 'num')}${head('profit', 'Profit', 'num')}
-          ${state.columns.map((c) => html`<th class="col" data-col="${c.id}" title="Click to rename or delete this column">${c.label}${c.clientVisible ? ' 👁' : ''}</th>`)}<th>Notes / activities</th><th></th><th></th></tr></thead>
+        <thead><tr>${head('date', 'Date')}${head('market', 'Market')}${head('store', 'Store name')}${showClient ? html`<th title="Empty: the row is in every client's update. A client: only in that client's update.">Client</th>` : ''}<th>Currency</th>${head('orders', 'Orders received', 'num')}${head('investment', 'Purchasing cost', 'num')}${head('revenue', 'Total sales', 'num')}${head('profit', 'Profit', 'num')}
+          ${state.columns.map((c) => html`<th class="${editing ? 'col' : ''}" data-col="${c.id}" title="${editing ? 'Click to rename or delete this column' : ''}">${c.label}</th>`)}<th>Notes / activities</th><th></th><th></th></tr></thead>
         <tbody>${rows.map(rowHtml)}</tbody>
         <tfoot><tr><td colspan="${showClient ? 5 : 4}">Total <span class="muted small">(in ${E.settings.currency})</span></td><td class="num" id="tf-orders"></td><td class="num" id="tf-cost"></td><td class="num" id="tf-sales"></td><td class="num" id="tf-profit"></td><td colspan="${state.columns.length + 3}"></td></tr></tfoot>
-      </table></div>${rows.length ? '' : html`<div class="muted center" style="padding:22px 0">Your sheet is empty. Press <b>+ Add row</b> and start typing: everything is saved by itself.</div>`}`);
+      </table></div>${rows.length ? '' : html`<div class="muted center" style="padding:22px 0">Your sheet is empty. Press <b>Edit</b>, then <b>+ Add row</b> and start typing: everything is saved by itself.</div>`}`);
       for (const r of state.rows) paintRow(r, true);
       paintTotals();
     }
@@ -254,14 +272,16 @@
     // ---- loading ----
     async function load() {
       const r = await E.get(`/api/orders/me${E.qs({ from, to })}`);
-      state = { ...state, columns: r.columns, clients: r.clients, fx: r.fx, editDays: r.editDays || 7, rows: r.rows.map(fromServer).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id) };
+      state = { ...state, columns: r.columns, clients: r.clients, published: r.published || [], fx: r.fx, editDays: r.editDays || 7, rows: r.rows.map(fromServer).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id) };
       const csv = E.$('#csv', el); if (csv) csv.href = `/api/orders/me${E.qs({ from, to, format: 'csv' })}`;
-      draw();
+      draw(); drawPub();
     }
+    const refreshPub = async () => { const r = await E.get(`/api/orders/me${E.qs({ from, to })}`); state.published = r.published || []; drawPub(); };
     const flushAll = async () => { await Promise.all(state.rows.filter((r) => ['dirty', 'error'].includes(r.st)).map(flush)); };
 
     // ---- adding rows ----
     function addRow(preset = {}, focus = 'market') {
+      if (!editing) return null;
       const prev = state.rows.at(-1);
       const r = { k: ++seq, id: null, date: E.today(), market: '', store: preset.store ?? '', clientId: prev?.clientId ?? '', clientName: '', currency: lastCurrency(), orders: '', investment: '', revenue: '', note: '', extra: {}, st: 'draft', err: '', ...preset };
       state.rows.push(r);
@@ -302,15 +322,60 @@
       E.toast(errors.length ? `${ok} added, ${errors.length} not added. ${errors[0]}` : `${ok} row${ok === 1 ? '' : 's'} added`, errors.length ? 'bad' : undefined);
     }
 
+    // ---- Update client ----
+    async function updateClient() {
+      if (!state.clients.length) return E.toast('No client is assigned to you yet. Ask the admin to choose you for a client.', 'bad');
+      await flushAll();
+      const broken = state.rows.find((r) => r.st === 'error');
+      if (broken) return E.toast(`Fix the red row first: ${broken.err}`, 'bad');
+      const countFor = (cid) => state.rows.filter((r) => r.id && (!r.clientId || String(r.clientId) === String(cid))).length;
+      const first = state.clients[0];
+      const { form } = E.modal({
+        title: 'Update client', submit: 'Send update', wide: true,
+        body: html`<p>The client will see your sheet <b>exactly as it is now</b>: every row from <b>${fmt.date(from)}</b> to <b>${fmt.date(to)}</b> and every column, including <b>Notes / activities</b> and your own columns. They never see your name.</p>
+          <p class="muted small">Rows you tagged for a different client are left out. Change the dates above the sheet first if you want to send another period. The next update replaces this one.</p>
+          <div class="form">${state.clients.length > 1
+            ? E.field({ name: 'clientId', label: 'Send to client', type: 'select', required: true, full: true, value: first.id, options: state.clients.map((c) => ({ value: c.id, label: c.username })) })
+            : html`<div class="full">Send to client <b>${first.username}</b></div><input type="hidden" name="clientId" value="${first.id}">`}</div>
+          <p class="small" id="pubcount"></p>`,
+        onSubmit: async (v, { close }) => {
+          const r = await E.post('/api/orders/publish', { clientId: Number(v.clientId), from, to });
+          close(); E.toast(`Sent to ${r.username}: ${r.rows} row${r.rows === 1 ? '' : 's'}`);
+          await refreshPub();
+        },
+      });
+      const sel = form.elements.clientId;
+      const count = () => { const n = countFor(sel.value); E.mount(E.$('#pubcount', form), html`<b>${n} row${n === 1 ? '' : 's'}</b> will be sent${n ? '' : '. Add rows first: there is nothing to send in this period.'}`); };
+      sel.addEventListener('change', count); count();
+    }
+
     // ---- the page ----
-    E.mount(el, html`${E.pageHead('Daily Reports', 'My orders & sales as a sheet. Type in the cells: everything saves by itself. Your team leader, head of department and admin see it live, and so does a client you tag a row with.',
-        html`<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn" data-act="form">Add with a form</button><button class="btn" data-act="column">+ Column</button><a class="btn" id="csv" href="#">Export CSV</a><button class="btn primary" data-act="row">+ Add row</button></div>`)}
+    E.mount(el, html`${E.pageHead('Daily Reports', 'My orders & sales as a sheet. Press Edit to change it: everything saves by itself. Your team leader, head of department and admin see it live. Your client sees it when you press Update client.', html`<div class="row" id="sheetbar" style="gap:8px;flex-wrap:wrap"></div>`)}
       <form class="filters" id="range">${E.field({ name: 'from', label: 'From', type: 'date', value: from })}${E.field({ name: 'to', label: 'To', type: 'date', value: to })}</form>
-      <div id="sheetstats"></div><div id="sheetbox"></div>
-      <p class="muted small">Tips: <b>Enter</b> moves down, <b>Tab</b> moves right. Number cells accept sums like <code>=12*3.5+4</code>. Paste cells from Excel or Google Sheets (Date, Market, Store, Currency, Orders, Cost, Sales, Notes). Rows older than ${state.editDays} days are locked. Click a column name of your own to rename or delete it.</p>`);
+      <div id="pubstatus"></div><div id="sheetstats"></div><div id="sheetbox"></div>
+      <p class="muted small">Tips: press <b>Edit</b> to change the sheet and <b>Done editing</b> when finished. <b>Enter</b> moves down, <b>Tab</b> moves right. Number cells accept sums like <code>=12*3.5+4</code>. Paste cells from Excel or Google Sheets (Date, Market, Store, Currency, Orders, Cost, Sales, Notes). Rows older than ${state.editDays} days are locked. <b>Update client</b> sends your client a copy of the sheet as it is.</p>`);
+    function drawBar() {
+      E.mount(E.$('#sheetbar', el), html`${editing ? html`<button class="btn" data-act="form">Add with a form</button><button class="btn" data-act="column">+ Column</button><button class="btn" data-act="row">+ Add row</button>` : ''}
+        <a class="btn" id="csv" href="#">Export CSV</a>
+        <button class="btn ${editing ? 'primary' : ''}" data-act="edit">${editing ? '✓ Done editing' : '✎ Edit'}</button>
+        <button class="btn ${editing ? '' : 'primary'}" data-act="update">⬆ Update client</button>`);
+      const csv = E.$('#csv', el); if (csv) csv.href = `/api/orders/me${E.qs({ from, to, format: 'csv' })}`;
+    }
+    drawBar();
     box = E.$('#sheetbox', el);
 
     E.actions(el, {
+      edit: async () => {
+        if (editing) await flushAll();
+        editing = !editing; drawBar(); draw();
+        if (editing && !state.rows.length) addRow();
+      },
+      update: () => updateClient().catch((ex) => E.toast(ex.message, 'bad')),
+      unpublish: async (id) => {
+        const c = state.clients.find((x) => String(x.id) === id);
+        if (!(await E.confirm(`Stop showing your sheet to client ${c?.username || ''}? They will see nothing until your next update.`, { yes: 'Stop showing it', danger: true }))) return;
+        try { await E.del(`/api/orders/publish/${id}`); E.toast('The client no longer sees your sheet'); await refreshPub(); } catch (ex) { E.toast(ex.message, 'bad'); }
+      },
       row: () => addRow(),
       form: async () => { await flushAll(); orderForm(null, { clients: state.clients, columns: state.columns, editDays: state.editDays, lastCurrency: lastCurrency() }, load); },
       column: () => columnModal(null, async () => { await flushAll(); await load(); }),
@@ -324,14 +389,14 @@
 
     box.addEventListener('input', (ev) => {
       const t = ev.target.closest('[data-f]'); if (!t) return;
-      const r = rowOf(t.closest('tr').dataset.k); if (!r || locked(r)) return;
+      const r = rowOf(t.closest('tr').dataset.k); if (!r || locked(r) || !editing) return;
       const f = t.dataset.f;
       if (f.startsWith('x:')) r.extra[f.slice(2)] = t.value; else r[f] = t.value;
       schedule(r); paintRow(r);
     });
     box.addEventListener('change', (ev) => {
       const t = ev.target.closest('[data-f]'); if (!t) return;
-      const r = rowOf(t.closest('tr').dataset.k); if (!r || locked(r)) return;
+      const r = rowOf(t.closest('tr').dataset.k); if (!r || locked(r) || !editing) return;
       const f = t.dataset.f;
       if (t.tagName === 'SELECT' || t.type === 'date') { r[f] = t.value; if (f === 'currency') { /* other cells keep their numbers: only the currency changes */ } }
       // a number cell shows the result of a typed sum when the person leaves it
@@ -340,7 +405,7 @@
       schedule(r, 50);
     });
     box.addEventListener('keydown', (ev) => {
-      const t = ev.target.closest('input[data-f]'); if (!t) return;
+      const t = ev.target.closest('input[data-f]'); if (!t || !editing) return;
       const dir = ev.key === 'Enter' || ev.key === 'ArrowDown' ? 1 : ev.key === 'ArrowUp' ? -1 : 0;
       if (!dir || (t.type === 'date' && ev.key !== 'Enter') || ev.shiftKey || ev.isComposing) return;
       const trs = [...box.querySelectorAll('tbody tr')];
@@ -352,7 +417,7 @@
     });
     box.addEventListener('paste', (ev) => {
       const text = ev.clipboardData?.getData('text') || '';
-      if (!/[\t\n]/.test(text.trim())) return; // an ordinary paste into one cell
+      if (!editing || !/[\t\n]/.test(text.trim())) return; // an ordinary paste into one cell
       ev.preventDefault();
       pasteRows(text);
     });
@@ -360,18 +425,18 @@
       const th = ev.target.closest('th[data-sort]');
       if (th && th.dataset.sort) { sort = { f: th.dataset.sort, dir: sort.f === th.dataset.sort ? -sort.dir : 1 }; draw(); return; }
       const col = ev.target.closest('th[data-col]');
-      if (col) { columnModal(state.columns.find((c) => String(c.id) === col.dataset.col), async () => { await flushAll(); await load(); }); return; }
+      if (col && editing) { columnModal(state.columns.find((c) => String(c.id) === col.dataset.col), async () => { await flushAll(); await load(); }); return; }
       const del = ev.target.closest('[data-del]');
-      if (del) {
+      if (del && editing) {
         const r = rowOf(del.dataset.del); if (!r) return;
         if (r.busy) return E.toast('Saving this row, try again in a moment', 'bad');
         if (r.id && !(await E.confirm('Delete this row?', { yes: 'Delete', danger: true }))) return;
-        try { if (r.id) await E.del(`/api/orders/${r.id}`); clearTimeout(r.timer); state.rows = state.rows.filter((x) => x !== r); draw(); } catch (ex) { E.toast(ex.message, 'bad'); }
+        try { if (r.id) await E.del(`/api/orders/${r.id}`); clearTimeout(r.timer); state.rows = state.rows.filter((x) => x !== r); if (r.id) markStale(); draw(); } catch (ex) { E.toast(ex.message, 'bad'); }
       }
     });
 
     await load();
-    if (!state.rows.length) addRow({}, 'market');
+    if (!state.rows.length) { editing = true; drawBar(); draw(); addRow({}, 'market'); }
   }
 
   E.page({ id: 'my-orders', title: 'Daily Reports', icon: '▤', roles: ['leader', 'member'], group: E.myGroup, order: 8, render: mySheet });
@@ -406,10 +471,11 @@
       if (!document.body.contains(overlay)) { clearInterval(timer); return; }
       let r;
       try { r = await E.get(`/api/orders/sheet/${person.employeeId}${E.qs({ from, to })}`); } catch (ex) { E.mount(box, html`<div class="error">${ex.message}</div>`); return; }
-      const next = JSON.stringify([r.rows.map((x) => [x.id, x.updatedAt]), r.columns]);
+      const next = JSON.stringify([r.rows.map((x) => [x.id, x.updatedAt]), r.columns, r.published]);
       if (next === sig) return;
       sig = next;
-      E.mount(box, html`${totalsStats(r.totals)}${E.table(sheetColumns(r.columns), r.rows, 'This person has not added any report in this period.')}`);
+      E.mount(box, html`${(r.published || []).map((p) => html`<div class="pub ${p.upToDate ? 'ok' : 'warn'}" style="margin-bottom:8px">${p.upToDate ? '✓' : '⚠'} Client <b>${p.username}</b>: updated ${fmt.dateTime(p.publishedAt)} (${p.rows} rows)${p.upToDate ? '' : '. The sheet was changed after that update.'}</div>`)}
+        ${totalsStats(r.totals)}${E.table(sheetColumns(r.columns), r.rows, 'This person has not added any report in this period.')}`);
     };
     const timer = setInterval(pull, 8000);
     E.$('#vrange', form).addEventListener('change', () => { const f = E.readForm(form); if (f.from && f.to && f.from <= f.to) { from = f.from; to = f.to; sig = ''; pull(); } });
@@ -460,34 +526,34 @@
   });
 
   // ====================================================================================
-  // CLIENT PORTAL: the rows shared with this client
+  // CLIENT PORTAL: the sheet the team sent, exactly as sent
   // ====================================================================================
   E.page({
     id: 'portal-sheet', title: 'Daily Sheet', icon: '▤', roles: ['client'], order: 4,
     async render(el) {
-      let from = E.addDays(E.today(), -60);
-      let to = E.today();
-      let sig = '';
-      const draw = async (force) => {
-        const d = await E.get(`/api/portal/sheet${E.qs({ from, to })}`);
-        const next = JSON.stringify([d.rows, d.totals]);
-        if (!force && next === sig) return;
-        sig = next;
-        const by = Object.entries(d.totals);
-        E.mount(E.$('#csheet', el), html`${by.length ? html`<div class="stats">${by.map(([c, t]) => html`${E.stat(`Orders (${CUR_LABEL[c] || c})`, fmt.num(t.orders))}${E.stat('Purchasing cost', moneyIn(t.investment, c))}${E.stat('Total sales', moneyIn(t.revenue, c), { cls: 'accent' })}${E.stat('Profit', moneyIn(t.profit, c), { cls: t.profit < 0 ? 'bad' : 'accent' })}`)}</div>` : ''}
+      let stamp = null;
+      const block = (sh) => {
+        const by = Object.entries(sh.totals || {});
+        return html`<div class="card" style="margin-bottom:18px">
+          <div class="row" style="justify-content:space-between;align-items:baseline;gap:8px"><h3 style="margin:0">${sh.title}</h3><span class="muted small">Updated ${fmt.dateTime(sh.publishedAt)} · ${fmt.date(sh.from)} to ${fmt.date(sh.to)}</span></div>
+          ${by.map(([c, t]) => html`<div class="muted small" style="margin:14px 0 6px"><b>${CUR_LABEL[c] || c}</b></div><div class="stats" style="margin:0">${E.stat('Orders', fmt.num(t.orders))}${E.stat('Purchasing cost', moneyIn(t.investment, c))}${E.stat('Total sales', moneyIn(t.revenue, c), { cls: 'accent' })}${E.stat('Profit', moneyIn(t.profit, c), { cls: t.profit < 0 ? 'bad' : 'accent' })}</div>`)}
           ${E.table([
             { label: 'Date', render: (x) => html`<b>${fmt.date(x.date)}</b>` }, { label: 'Market', render: (x) => dash(x.market) }, { label: 'Store', render: (x) => dash(x.store) },
             { label: 'Currency', render: (x) => CUR_LABEL[x.currency] || x.currency }, { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) },
             { label: 'Purchasing cost', class: 'num', render: (x) => moneyIn(x.investment, x.currency) }, { label: 'Total sales', class: 'num', render: (x) => moneyIn(x.revenue, x.currency) },
             { label: 'Profit', class: 'num', render: (x) => profitCell(x.profit, x.currency) },
-            { label: 'More', class: 'wrap', render: (x) => (x.custom.length ? x.custom.map((c) => html`<div class="small"><span class="muted">${c.label}:</span> ${c.value}</div>`) : html`<span class="muted">-</span>`) },
-          ], d.rows, 'Nothing has been shared on your sheet yet.')}`);
+            ...sh.columns.map((c) => ({ label: c.label, class: c.kind === 'number' ? 'num' : '', render: (x) => dash(x.extra?.[c.id] !== undefined && x.extra?.[c.id] !== null ? String(x.extra[c.id]) : '') })),
+            { label: 'Notes / activities', class: 'wrap', render: (x) => x.note || '' },
+          ], sh.rows, 'This sheet has no rows.')}</div>`;
       };
-      E.mount(el, html`${E.pageHead('Daily sheet', 'The daily numbers eTricks keeps for you. It updates by itself.')}
-        <form class="filters" id="crange">${E.field({ name: 'from', label: 'From', type: 'date', value: from })}${E.field({ name: 'to', label: 'To', type: 'date', value: to })}</form><div id="csheet"></div>`);
-      E.$('#crange', el).addEventListener('change', (ev) => { const f = E.readForm(ev.currentTarget); if (f.from && f.to && f.from <= f.to) { from = f.from; to = f.to; draw(true).catch((ex) => E.toast(ex.message, 'bad')); } });
-      await draw(true);
-      keepFresh('portal-sheet', () => draw(false).catch(() => {}), 10000);
+      E.mount(el, html`${E.pageHead('Daily sheet', 'The sheet eTricks keeps for you, exactly as the team sent it. It updates here by itself when the team sends a new version.')}<div id="csheet"></div>`);
+      const draw = async () => {
+        const d = await E.get('/api/portal/sheet');
+        E.mount(E.$('#csheet', el), d.sheets.length ? html`${d.sheets.map(block)}` : html`<div class="card empty">Nothing has been sent to you yet. When the team sends your sheet it appears here.</div>`);
+      };
+      stamp = (await E.get('/api/portal/sheet/stamp')).stamp;
+      await draw();
+      keepFresh('portal-sheet', async () => { try { const n = (await E.get('/api/portal/sheet/stamp')).stamp; if (n !== stamp) { stamp = n; await draw(); } } catch { /* try again next time */ } }, 10000);
     },
   });
 })();

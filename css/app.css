@@ -327,3 +327,9 @@ select.cell { appearance: none; cursor: pointer; }
 .cell[readonly] { cursor: not-allowed; }
 .iconbtn { background: transparent; border: 0; color: var(--muted); cursor: pointer; padding: 6px 8px; border-radius: 6px; font-size: 13px; }
 .iconbtn:hover { color: var(--danger); background: rgba(255, 93, 108, .12); }
+
+/* what the client sees of the sheet */
+.pubstatus { margin: 0 0 12px; display: grid; gap: 6px; }
+.pub { padding: 8px 12px; border-radius: 10px; font-size: 13px; background: rgba(127, 127, 127, .10); border: 1px solid var(--line); }
+.pub.ok { background: rgba(34, 197, 94, .10); border-color: rgba(34, 197, 94, .35); }
+.pub.warn { background: rgba(217, 119, 6, .12); border-color: rgba(217, 119, 6, .4); }
