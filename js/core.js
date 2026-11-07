@@ -22,6 +22,9 @@
     try { data = await res.json(); } catch { /* empty body */ }
     if (!res.ok) {
       if (res.status === 401 && E.user && !url.startsWith('/api/auth/')) { E.user = null; E.toast('Your session has ended. Please sign in again.', 'bad'); E.boot(); }
+      // the access password was changed (or the browser forgot it): back to the password page
+      // (not for the calls the start-up page makes itself: they would start it again and again)
+      if (res.status === 403 && /Access password required/.test(data.error || '') && !E.user && E.boot && !url.startsWith('/api/public/') && !url.startsWith('/api/gate')) E.boot();
       throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
     }
     return data;
@@ -37,6 +40,26 @@
     return s ? `?${s}` : '';
   };
   E.download = (url) => { location.href = url; };
+
+  // ---------- how a person is paid: a fixed salary, a percentage of the profit, or both ----------
+  E.PAY_TYPES = [{ value: 'fixed', label: 'Fixed salary' }, { value: 'percent', label: 'Percentage of the profit' }, { value: 'both', label: 'Fixed salary + percentage' }];
+  E.payFields = (v = {}) => html`${E.field({ name: 'payType', label: 'How is this person paid?', type: 'select', value: v.payType ?? '', options: [{ value: '', label: 'Choose…' }, ...E.PAY_TYPES], required: true, full: true })}
+    <div class="full" data-pay="amount" hidden>${E.field({ name: 'payAmount', label: 'Fixed monthly salary', type: 'number', value: v.amount || '', attrs: 'min="0.01" step="0.01"', full: true })}</div>
+    <div class="full" data-pay="percent" hidden>${E.field({ name: 'payPercent', label: 'Percentage of the profit (%)', type: 'number', value: v.percent || '', attrs: 'min="0.01" max="100" step="0.01"', full: true, help: "Paid on the net profit (total sales minus purchasing cost) that the person's daily sheet shows for the month." })}</div>`;
+  // shows the amount and / or percentage boxes that the chosen way of payment needs
+  E.bindPay = (form) => {
+    const sel = form.elements.payType;
+    const show = () => {
+      const t = sel.value;
+      for (const [key, on] of [['amount', t === 'fixed' || t === 'both'], ['percent', t === 'percent' || t === 'both']]) {
+        const box = form.querySelector(`[data-pay="${key}"]`);
+        box.hidden = !on;
+        for (const i of box.querySelectorAll('input')) i.required = on;
+      }
+    };
+    sel.addEventListener('change', show); show();
+  };
+  E.readPay = (v) => ({ type: v.payType, amount: v.payAmount === '' ? null : v.payAmount, percent: v.payPercent === '' ? null : v.payPercent });
 
   // ---------- formatting ----------
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

@@ -24,8 +24,9 @@
       title: `Record salary payment - ${r.name}`,
       body: html`<p class="muted">${monthName(period)}. Paid so far: <b>${fmt.money(r.paid)}</b>${r.remaining ? html` · Remaining: <b>${fmt.money(r.remaining)}</b>` : ''}</p>
         <div class="form">
-        ${E.field({ name: 'salaryAmount', label: 'Salary for this month', type: 'number', value: r.due || r.rate || '', required: true, attrs: 'min="0.01" step="0.01"', help: 'Raise it if this payment includes a bonus' })}
-        ${E.field({ name: 'amount', label: 'Amount paid now', type: 'number', value: r.remaining || r.due || r.rate || '', required: true, attrs: 'min="0.01" step="0.01"' })}
+        ${r.payType && r.payType !== 'fixed' ? html`<div class="full muted small">${r.payText}. This month's profit is <b>${fmt.money(r.profit)}</b>, so the percentage gives <b>${fmt.money(r.commission)}</b>${r.payType === 'both' ? html` and, with the fixed salary, <b>${fmt.money(r.suggested)}</b>` : ''}.</div>` : ''}
+        ${E.field({ name: 'salaryAmount', label: 'Salary for this month', type: 'number', value: r.due || r.suggested || r.rate || '', required: true, attrs: 'min="0.01" step="0.01"', help: r.payType && r.payType !== 'fixed' ? "Worked out from this month's profit so far. Change it if you agreed another amount, or if it includes a bonus." : 'Raise it if this payment includes a bonus' })}
+        ${E.field({ name: 'amount', label: 'Amount paid now', type: 'number', value: r.remaining || r.due || r.suggested || r.rate || '', required: true, attrs: 'min="0.01" step="0.01"' })}
         ${E.field({ name: 'paidDate', label: 'Date paid', type: 'date', value: E.today(), required: true })}
         ${E.field({ name: 'method', label: 'Paid by', type: 'select', options: METHODS })}
         ${E.field({ name: 'note', label: 'Note', full: true, placeholder: 'e.g. advance, bonus, transfer reference' })}</div>
@@ -39,10 +40,11 @@
 
   function rateForm(r, onSaved) {
     E.modal({
-      title: `Monthly salary - ${r.name}`,
-      body: html`<div class="form">${E.field({ name: 'amount', label: 'Monthly salary', type: 'number', value: r.rate || '', required: true, attrs: 'min="0" step="0.01"', full: true })}</div>
-        <p class="muted small">This is used as the default salary when you record a payment. Months already recorded keep their own amount.</p>`,
-      onSubmit: async (v, { close }) => { await E.put('/api/salaries/rate', { ...v, refId: r.refId }); E.toast('Salary saved'); close(); onSaved(); },
+      title: `How ${r.name} is paid`,
+      body: html`<div class="form">${E.payFields({ payType: r.rate || r.percent ? r.payType : '', amount: r.rate, percent: r.percent })}</div>
+        <p class="muted small">This is the default when you record a payment. Months already recorded keep their own amount.</p>`,
+      onOpen: (f) => E.bindPay(f),
+      onSubmit: async (v, { close }) => { await E.put('/api/salaries/rate', { ...E.readPay(v), refId: r.refId }); E.toast('Saved'); close(); onSaved(); },
     });
   }
 
@@ -62,7 +64,7 @@
     const all = h.records.flatMap((m) => m.payments.map((p) => ({ ...p, period: m.period, due: m.due })));
     const { form } = E.modal({
       title: `Payment history - ${r.name}`, wide: true, cancel: 'Close',
-      body: html`<p class="muted">Monthly salary: <b>${fmt.money(h.rate)}</b></p>
+      body: html`<p class="muted">Paid how: <b>${h.rate || h.percent ? h.payText : 'Not set'}</b></p>
         ${E.table([
           { label: 'Month', render: (p) => monthName(p.period) }, { label: 'Paid on', render: (p) => fmt.date(p.paidDate) },
           { label: 'Amount', class: 'num', render: (p) => fmt.money(p.amount) }, { label: 'Of salary', class: 'num', render: (p) => fmt.money(p.due) }, { label: 'By', render: (p) => p.method || '-' },
@@ -109,7 +111,7 @@
             ${E.stat('Disputed', t.disputed, { cls: t.disputed ? 'bad' : '', sub: t.disputed ? 'someone says they did not receive it' : '' })}</div>
             ${E.table([
               { label: 'Employee', render: (x) => html`<b>${x.name}</b>${roleTag(x)}<div class="muted small">${[x.code, x.teamName, E.isAdmin() ? x.departmentName : null].filter(Boolean).join(' · ')}</div>` },
-              { label: 'Monthly salary', class: 'num', render: (x) => (x.rate ? fmt.money(x.rate) : html`<span class="muted">Not set</span>`) },
+              { label: 'Paid how', render: (x) => (x.rate || x.percent ? html`<b>${x.payText}</b>${x.payType !== 'fixed' ? html`<div class="muted small">Profit ${fmt.money(x.profit)} → ${fmt.money(x.commission)}</div>` : ''}` : html`<span class="muted">Not set</span>`) },
               { label: 'Paid', class: 'num', render: (x) => fmt.money(x.paid) }, { label: 'Remaining', class: 'num', render: (x) => fmt.money(x.remaining) },
               { label: 'Last paid', render: (x) => fmt.date(x.lastPaidDate) }, { label: 'Status', render: (x) => statusBadge(x.status) },
               { label: 'Received?', render: confirmCell },
@@ -139,7 +141,7 @@
       const last = pays[0];
       E.mount(el, html`${E.pageHead('My salary', 'Check what you were paid and confirm that you received it.')}
         ${d.awaitingConfirmation ? html`<div class="card" style="border-color:var(--accent);margin-bottom:16px"><b>${d.awaitingConfirmation} payment${d.awaitingConfirmation > 1 ? 's are' : ' is'} waiting for your answer.</b> <span class="muted">Please tell us whether you received the money.</span></div>` : ''}
-        <div class="stats">${E.stat('Monthly salary', d.monthlySalary ? fmt.money(d.monthlySalary) : 'Not set yet')}
+        <div class="stats">${E.stat('How you are paid', d.monthlySalary || d.percent ? d.payText : 'Not set yet', { sub: d.payType !== 'fixed' && d.percent ? `${monthName(d.thisMonth.period)}: profit ${fmt.money(d.thisMonth.profit)} gives ${fmt.money(d.thisMonth.commission)}` : '' })}
           ${E.stat('Last payment', last ? fmt.money(last.amount) : '-', { sub: last ? `${fmt.date(last.paidDate)} · ${last.method || ''}` : '' })}
           ${E.stat('Waiting for your answer', d.awaitingConfirmation, { cls: d.awaitingConfirmation ? 'accent' : '' })}</div>
         <h3 style="margin:0 0 10px">Payments</h3>

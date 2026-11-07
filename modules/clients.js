@@ -8,9 +8,12 @@
   const revenue = (n) => html`<span class="${n < 0 ? 'neg' : 'pos'}">${money(n)}</span>`;
   const dash = (v) => v || html`<span class="muted">-</span>`;
 
-  // The four numbers of a client, as cards.
-  const numbers = (t, { sub = "" } = {}) => html`<div class="stats quad">${E.stat('Orders', fmt.num(t.orders), { sub })}${E.stat('Investment', money(t.investment))}${E.stat('Sales', money(t.sales), { cls: 'accent' })}
-    ${E.stat('Revenue', money(t.revenue), { cls: t.revenue < 0 ? 'bad' : 'accent', sub: 'sales − investment' })}</div>`;
+  const CUR_LABEL = { AUD: 'AUD $', USD: 'USD $', GBP: 'GBP £' };
+  const moneyIn = (n, cur) => { try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur || 'USD', maximumFractionDigits: 2 }).format(n); } catch { return Number(n).toFixed(2); } };
+  const profitIn = (n, cur) => html`<span class="${n < 0 ? 'neg' : 'pos'}">${moneyIn(n, cur)}</span>`;
+  // The four numbers of a period in one currency, as cards: qty, Ali Exp price, sales (you earned) and net profit.
+  const numbers = (t, cur, { sub = '' } = {}) => html`<div class="stats quad">${E.stat('Qty', fmt.num(t.qty), { sub })}${E.stat('Ali Exp Price', moneyIn(t.investment, cur))}${E.stat('Sales', moneyIn(t.sales, cur), { cls: 'accent' })}
+    ${E.stat('Net Profit', moneyIn(t.profit, cur), { cls: t.profit < 0 ? 'bad' : 'accent', sub: 'sales − Ali Exp Price' })}</div>`;
 
   // ====================================================================================
   // A chat that keeps itself up to date. Used inline by the client portal and in a window by the team.
@@ -138,12 +141,15 @@
   function mountPicker(box, initial) {
     const state = { list: [], picked: new Set(initial || []), note: 'Select the department first.' };
     let seq = 0;
+    // someone who already works for the most clients one person can have cannot be given another
+    const full = (e) => e.limit && e.otherClients >= e.limit && !state.picked.has(e.id);
     const draw = () => {
       const n = state.list.length;
-      E.mount(box, html`<div class="muted small" style="margin-bottom:8px">Tick the people who work for this client. Only they, the head of the department and you can see its updates, chat and alerts.</div>
+      E.mount(box, html`<div class="muted small" style="margin-bottom:8px">Tick the people who work for this client. Only they, the head of the department and you can see its sheet, chat and alerts.</div>
         ${n ? html`<div class="row" style="margin-bottom:8px;gap:8px"><button type="button" class="btn sm" data-pick="all">Select all</button><button type="button" class="btn sm" data-pick="none">Clear</button><span class="muted small cnt"></span></div>
-          <div class="people">${state.list.map((e) => html`<label><input type="checkbox" data-pid="${e.id}" ${state.picked.has(e.id) ? E.raw('checked') : ''}>
-            <span><b>${e.name}</b> <span class="muted small">${e.empCode || ''}</span><span class="muted small"> · ${e.teamName || 'No team'}</span></span>
+          <div class="people">${state.list.map((e) => html`<label class="${full(e) ? 'full' : ''}"><input type="checkbox" data-pid="${e.id}" ${state.picked.has(e.id) ? E.raw('checked') : ''} ${full(e) ? E.raw('disabled') : ''}>
+            <span><b>${e.name}</b> <span class="muted small">${e.empCode || ''}</span><span class="muted small"> · ${e.teamName || 'No team'}</span>
+              ${e.otherClients ? html`<span class="muted small"> · works for ${e.otherClients} other client${e.otherClients === 1 ? '' : 's'}${full(e) ? ' (the most one person can have)' : ''}</span>` : ''}</span>
             ${e.role === 'Team leader' ? html`<span class="badge ok" style="margin-left:auto">Team leader</span>` : html`<span class="badge" style="margin-left:auto">Member</span>`}</label>`)}</div>
           <div class="small warnbox" hidden></div>`
           : html`<div class="muted">${state.note}</div>`}`);
@@ -164,7 +170,7 @@
     });
     box.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-pick]'); if (!b) return;
-      state.picked = b.dataset.pick === 'all' ? new Set(state.list.map((e) => e.id)) : new Set();
+      state.picked = b.dataset.pick === 'all' ? new Set(state.list.filter((e) => !(e.limit && e.otherClients >= e.limit)).map((e) => e.id)) : new Set();
       for (const cb of box.querySelectorAll('input[data-pid]')) cb.checked = state.picked.has(Number(cb.dataset.pid));
       count();
     });
@@ -195,7 +201,7 @@
     const r = await E.get(`/api/clients/${c.id}/staff`);
     const { form } = E.modal({
       title: `Team members of ${c.username}`, submit: 'Save', wide: true,
-      body: html`<p class="muted">${c.teamName ? html`Team: <b>${c.teamName}</b>.` : html`This client is not tied to one team, so you can choose from the whole department.`} A person you remove loses access to the client's chat and updates at once.</p><div id="peopleBox"></div>`,
+      body: html`<p class="muted">${c.teamName ? html`Team: <b>${c.teamName}</b>.` : html`This client is not tied to one team, so you can choose from the whole department.`} A person you remove loses access to the client's chat and sheet at once.</p><div id="peopleBox"></div>`,
       onSubmit: async (v, { close }) => {
         const res = await E.put(`/api/clients/${c.id}/staff`, { employeeIds: picker.ids() });
         E.toast(`Saved: ${res.total} ${res.total === 1 ? 'person' : 'people'} on this client`); close(); onSaved();
@@ -324,77 +330,6 @@
   });
 
   // ====================================================================================
-  // TEAM: the day's work for a client
-  // ====================================================================================
-  function updateForm(clients, existing, preset, onSaved) {
-    const e = existing || { date: E.today(), clientId: preset };
-    E.modal({
-      title: existing ? 'Edit client update' : 'Add client update', wide: true,
-      body: html`<div class="form">
-        ${E.field({ name: 'clientId', label: 'Client ID', type: 'select', required: true, value: e.clientId ?? '', full: true, options: [{ value: '', label: 'Select the client…' }, ...clients.map((c) => ({ value: c.id, label: c.username }))] })}
-        ${E.field({ name: 'date', label: 'Date', type: 'date', value: e.date, required: true, attrs: `max="${E.today()}"` })}
-        ${E.field({ name: 'market', label: 'Market', value: e.market, placeholder: 'e.g. Amazon US' })}
-        ${E.field({ name: 'store', label: 'Store / account', value: e.store })}
-        ${E.field({ name: 'orders', label: 'Orders', type: 'number', value: e.orders ?? '', attrs: 'min="0" step="1"' })}
-        ${E.field({ name: 'investment', label: 'Investment', type: 'number', value: e.investment ?? '', attrs: 'min="0" step="0.01"' })}
-        ${E.field({ name: 'sales', label: 'Sales', type: 'number', value: e.sales ?? '', attrs: 'min="0" step="0.01"' })}
-        <div class="muted small" style="align-self:end;padding-bottom:10px">Revenue is worked out for the client: sales − investment.</div>
-        ${E.field({ name: 'note', label: 'Update for the client (what was done today)', type: 'textarea', value: e.note, full: true, attrs: 'rows="4"', placeholder: 'e.g. Listed 20 products, shipped 5 orders, answered 2 buyer messages' })}</div>
-        <p class="muted small"><b>The client reads this note.</b> It is shown as an update from "eTricks". Do not write your own name, a colleague's name or anything private.</p>`,
-      onSubmit: async (v, { close }) => {
-        const body = { ...v, clientId: Number(v.clientId) };
-        if (existing) await E.put(`/api/client-reports/${existing.id}`, body); else await E.post('/api/client-reports', body);
-        E.toast('Saved'); close(); onSaved();
-      },
-    });
-  }
-
-  E.page({
-    id: 'client-updates', title: 'Client Updates', icon: '◫', roles: STAFF, group: staffGroup, order: 10,
-    async render(el) {
-      let rows = [];
-      let clients = [];
-      const ctrl = await E.listPage(el, {
-        title: 'Client updates', subtitle: 'Write the day\'s orders, investment and sales for each client ID. The client sees the numbers and your note, labelled "eTricks": never your name.',
-        actions: html`<button class="btn primary" data-act="add">+ Add update</button>`,
-        filters: [
-          { name: 'clientId', label: 'Client', type: 'select', options: [{ value: '', label: 'All clients' }] },
-          { name: 'from', label: 'From', type: 'date', value: E.addDays(E.today(), -6) }, { name: 'to', label: 'To', type: 'date', value: E.today() },
-        ],
-        load: async (f) => {
-          clients = await E.get('/api/clients');
-          const sel = E.$('select[name=clientId]', el);
-          if (sel && sel.options.length === 1) { for (const c of clients) sel.append(new Option(c.username, c.id)); sel.value = f.clientId || ''; }
-          const r = await E.get(`/api/client-reports${E.qs(f)}`);
-          rows = r.rows;
-          const day = E.today();
-          return html`${clients.length ? html`<div class="grid cols-2" style="margin-bottom:16px">${clients.filter((c) => !f.clientId || String(c.id) === f.clientId).map((c) => html`<div class="card">
-              <h3><span>${c.username}</span><button class="btn sm primary" data-act="addfor" data-id="${c.id}">+ Update</button></h3>
-              <div class="muted small">Today</div><div><b>${fmt.num(c.today.orders)}</b> orders · <b>${money(c.today.sales)}</b> sales · revenue ${money(c.today.revenue)}</div>
-              <div class="muted small" style="margin-top:8px">All time</div><div><b>${fmt.num(c.total.orders)}</b> orders · ${money(c.total.investment)} invested · <b>${money(c.total.sales)}</b> sales · revenue ${money(c.total.revenue)}</div></div>`)}</div>`
-            : html`<div class="card empty" style="margin-bottom:16px">No client is assigned to you yet. The admin chooses which people work for each client.</div>`}
-            ${E.table([
-              { label: 'Date', render: (x) => fmt.date(x.date) }, { label: 'Client', render: (x) => html`<b>${x.username}</b>` },
-              { label: 'Market / store', render: (x) => html`${dash(x.market)}<div class="muted small">${x.store || ''}</div>` },
-              { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) }, { label: 'Investment', class: 'num', render: (x) => money(x.investment) },
-              { label: 'Sales', class: 'num', render: (x) => money(x.sales) }, { label: 'Revenue', class: 'num', render: (x) => revenue(x.revenue) },
-              { label: 'Update the client reads', class: 'wrap', render: (x) => x.note || '' },
-              { label: 'Written by', render: (x) => html`<span class="muted small">${x.by}</span>` },
-              { label: '', class: 'right', render: (x) => (x.canEdit ? html`<div class="actions"><button class="btn sm" data-act="edit" data-id="${x.id}">Edit</button><button class="btn sm danger" data-act="del" data-id="${x.id}">Delete</button></div>` : '') },
-            ], rows, 'No updates in this period.')}
-            ${rows.length ? html`<p class="muted small" style="margin-top:8px">Shown: ${fmt.num(r.totals.orders)} orders · investment ${money(r.totals.investment)} · sales ${money(r.totals.sales)} · revenue ${money(r.totals.revenue)}</p>` : ''}`;
-        },
-        bind: (box, refresh) => E.actions(box, {
-          edit: (id) => updateForm(clients, rows.find((r) => String(r.id) === id), null, refresh),
-          addfor: (id) => updateForm(clients, null, Number(id), refresh),
-          del: async (id) => { if (await E.confirm('Delete this update? The client will no longer see it.', { yes: 'Delete', danger: true })) { await E.del(`/api/client-reports/${id}`); E.toast('Deleted'); refresh(); } },
-        }),
-      });
-      E.actions(el, { add: () => updateForm(clients, null, null, ctrl.refresh) });
-    },
-  });
-
-  // ====================================================================================
   // TEAM: chat and alerts with clients
   // ====================================================================================
   function chatList(id, channel, title, subtitle) {
@@ -445,41 +380,40 @@
   E.page({
     id: 'portal-sales', title: 'Sales', icon: '▦', roles: CLIENT, order: 1,
     async render(el) {
-      const load = async (from, to) => E.get(`/api/portal/sales${E.qs({ from, to })}`);
-      const draw = async (from, to) => {
-        const d = await load(from, to);
-        const max = Math.max(1, ...d.chart.map((x) => x.sales));
-        E.mount(el, html`${E.pageHead('Your sales', `Client ${d.username} · updated daily by eTricks`, html`<button class="btn" data-act="refresh">↻ Refresh</button>`)}
-          <h3 style="margin:0 0 10px">Today <span class="muted" style="font-weight:400;font-size:14px">· ${fmt.date(d.today.date)}</span></h3>
-          ${numbers(d.today, { sub: d.today.orders ? 'received today' : 'nothing reported yet today' })}
+      let stamp = null;
+      const monthName = (m) => { const [y, mo] = m.split('-'); return `${['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][Number(mo) - 1]} ${y}`; };
+      const block = (c, many) => {
+        const max = Math.max(1, ...c.chart.map((x) => x.sales));
+        return html`<section style="margin-bottom:34px">
+          ${many ? html`<h2 style="margin:0 0 14px">${CUR_LABEL[c.currency] || c.currency}</h2>` : ''}
+          <h3 style="margin:0 0 10px">Today <span class="muted" style="font-weight:400;font-size:14px">· ${fmt.date(E.today())}</span></h3>
+          ${numbers(c.today, c.currency, { sub: c.today.qty ? 'sold today' : 'nothing on the sheet for today' })}
           <h3 style="margin:26px 0 10px">Daily</h3>
-          <div class="card"><h3>Sales - last 14 days</h3><div class="bars">${d.chart.map((x) => html`<div class="b"><span class="val">${x.sales ? fmt.num(Math.round(x.sales)) : ''}</span><div class="track"><div class="fill" style="height:${(x.sales / max) * 100}%"></div></div><span class="lab">${x.date.slice(8)}</span></div>`)}</div></div>
-          <form class="filters" id="range" style="margin-top:14px">${E.field({ name: 'from', label: 'From', type: 'date', value: d.from })}${E.field({ name: 'to', label: 'To', type: 'date', value: d.to })}</form>
+          <div class="card"><h3>Sales: last 14 days</h3><div class="bars">${c.chart.map((x) => html`<div class="b"><span class="val">${x.sales ? fmt.num(Math.round(x.sales)) : ''}</span><div class="track"><div class="fill" style="height:${(x.sales / max) * 100}%"></div></div><span class="lab">${x.date.slice(8)}</span></div>`)}</div></div>
+          <div style="margin-top:14px">${E.table([
+            { label: 'Date', render: (x) => html`<b>${fmt.date(x.date)}</b>` }, { label: 'Qty', class: 'num', render: (x) => fmt.num(x.qty) }, { label: 'Ali Exp Price', class: 'num', render: (x) => moneyIn(x.investment, c.currency) },
+            { label: 'Sales', class: 'num', render: (x) => moneyIn(x.sales, c.currency) }, { label: 'Net Profit', class: 'num', render: (x) => profitIn(x.profit, c.currency) },
+          ], c.days.slice(0, 31), 'No days yet.')}</div>
+          ${c.days.length > 31 ? html`<p class="muted small" style="margin-top:6px">The latest 31 days are listed. Every day is in the monthly table and in the total.</p>` : ''}
+          <h3 style="margin:26px 0 10px">Monthly <span class="muted" style="font-weight:400;font-size:14px">· this month so far: ${moneyIn(c.month.sales, c.currency)} sales, ${moneyIn(c.month.profit, c.currency)} net profit</span></h3>
           ${E.table([
-            { label: 'Date', render: (x) => html`<b>${fmt.date(x.date)}</b>` }, { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) }, { label: 'Investment', class: 'num', render: (x) => money(x.investment) },
-            { label: 'Sales', class: 'num', render: (x) => money(x.sales) }, { label: 'Revenue', class: 'num', render: (x) => revenue(x.revenue) },
-            { label: 'What eTricks did', class: 'wrap', render: (x) => html`${x.updates.filter((u) => u.note || u.market || u.store).map((u) => html`<div class="small">${[u.market, u.store].filter(Boolean).join(' · ')}${u.note ? html`${u.market || u.store ? ': ' : ''}${u.note}` : ''}</div>`)}${x.updates.every((u) => !u.note && !u.market && !u.store) ? html`<span class="muted small">-</span>` : ''}` },
-          ], d.days, 'No updates in this period.')}
-          ${d.days.length ? html`<p class="muted small" style="margin-top:6px">In this period: ${fmt.num(d.range.orders)} orders · investment ${money(d.range.investment)} · sales ${money(d.range.sales)} · revenue ${money(d.range.revenue)}</p>` : ''}
-          <h3 style="margin:26px 0 10px">Total <span class="muted" style="font-weight:400;font-size:14px">· ${d.total.since ? `since ${fmt.date(d.total.since)} · ${d.total.days} day${d.total.days === 1 ? '' : 's'}` : 'nothing yet'}</span></h3>
-          ${numbers(d.total, { sub: 'everything so far' })}
-          <p class="muted small">This month: ${fmt.num(d.month.orders)} orders · investment ${money(d.month.investment)} · sales ${money(d.month.sales)} · revenue ${money(d.month.revenue)}</p>`);
-        E.$('#range', el).addEventListener('change', (ev) => { const f = E.readForm(ev.currentTarget); if (f.from && f.to) draw(f.from, f.to).catch((ex) => E.toast(ex.message, 'bad')); });
+            { label: 'Month', render: (x) => html`<b>${monthName(x.month)}</b>` }, { label: 'Qty', class: 'num', render: (x) => fmt.num(x.qty) }, { label: 'Ali Exp Price', class: 'num', render: (x) => moneyIn(x.investment, c.currency) },
+            { label: 'Sales', class: 'num', render: (x) => moneyIn(x.sales, c.currency) }, { label: 'Net Profit', class: 'num', render: (x) => profitIn(x.profit, c.currency) },
+          ], c.months, 'No months yet.')}
+          <h3 style="margin:26px 0 10px">Total <span class="muted" style="font-weight:400;font-size:14px">· ${c.total.since ? `since ${fmt.date(c.total.since)} · ${c.total.days} day${c.total.days === 1 ? '' : 's'} with sales` : 'nothing yet'}</span></h3>
+          ${numbers(c.total, c.currency, { sub: 'everything so far' })}</section>`;
       };
-      const current = () => { const f = E.$('#range', el) ? E.readForm(E.$('#range', el)) : {}; return [f.from, f.to]; };
-      E.actions(el, { refresh: () => draw(...current()) });
+      const draw = async () => {
+        const d = await E.get('/api/portal/sales');
+        E.mount(el, html`${E.pageHead('Your sales', `Client ${d.username} · worked out from your daily sheet${d.updatedAt ? `, last updated ${fmt.dateTime(d.updatedAt)}` : ''}`)}
+          ${d.currencies.length ? d.currencies.map((c) => block(c, d.currencies.length > 1)) : html`<div class="card empty">No sheet has been sent to you yet. Your sales appear here as soon as the team sends your daily sheet.</div>`}`);
+      };
+      stamp = (await E.get('/api/portal/sheet/stamp')).stamp;
       await draw();
-      let seen = '';
-      const timer = setInterval(async () => {
-        if (!el.isConnected || location.hash !== '#/portal-sales') { clearInterval(timer); return; }
-        if (document.querySelector('.overlay') || el.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
-        try {
-          const d = await load(...current());
-          const sig = `${d.total.orders}|${d.total.sales}|${d.total.investment}|${d.today.orders}|${d.today.sales}|${d.days.length}`;
-          if (seen && sig !== seen) { const y = window.scrollY; await draw(...current()); window.scrollTo(0, y); E.toast('Your sales were updated'); }
-          seen = sig;
-        } catch { /* try again next time */ }
-      }, 30000);
+      keepFresh('portal-sales', async () => {
+        if (document.querySelector('.overlay')) return;
+        try { const n = (await E.get('/api/portal/sheet/stamp')).stamp; if (n !== stamp) { stamp = n; const y = window.scrollY; await draw(); window.scrollTo(0, y); E.toast('Your sales were updated'); } } catch { /* try again next time */ }
+      }, 20000);
     },
   });
 

@@ -333,3 +333,30 @@ select.cell { appearance: none; cursor: pointer; }
 .pub { padding: 8px 12px; border-radius: 10px; font-size: 13px; background: rgba(127, 127, 127, .10); border: 1px solid var(--line); }
 .pub.ok { background: rgba(34, 197, 94, .10); border-color: rgba(34, 197, 94, .35); }
 .pub.warn { background: rgba(217, 119, 6, .12); border-color: rgba(217, 119, 6, .4); }
+
+/* the website access password page */
+.hero.gate { max-width: 420px; margin: 8vh auto 0; text-align: center; }
+.hero.gate h1 { font-size: 26px; margin: 14px 0 6px; }
+.gatebox { display: grid; gap: 10px; margin-top: 18px; text-align: left; }
+.gatebox input { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line2); background: var(--panel2); font-size: 16px; }
+.gatebox input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.gatebox .btn { justify-content: center; padding: 12px; }
+.gateerr { color: var(--danger); font-size: 14px; }
+
+.people label.full { opacity: .55; cursor: not-allowed; }
+
+/* the sheet looks like the team's Google Sheet: blue title band, yellow column headings */
+table.sheet th { position: static; }
+table.sheet thead { position: sticky; top: 0; z-index: 3; }
+table.sheet th.hd { background: #ffe14d; color: #151515; text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 700; border-color: #c9b300; vertical-align: bottom; }
+table.sheet th.hd small { display: block; font-weight: 500; font-size: 10px; opacity: .7; }
+table.sheet th.hd.sortable:hover, table.sheet th.hd.col:hover { color: #7a4b00; }
+table.sheet tr.band th { background: #3b78d8; color: #fff; text-transform: none; letter-spacing: 0; font-size: 20px; text-align: left; padding: 10px 12px; border-color: #2f64b8; }
+table.sheet tr.band th small { font-size: 13px; font-weight: 500; opacity: .85; }
+table.sheet tr.band th.tot { text-align: right; font-size: 15px; white-space: nowrap; }
+table.sheet td.sr { min-width: 46px; width: 46px; text-align: center; color: var(--muted); padding: 0 6px; }
+table.sheet.ro td { padding: 8px 10px; }
+table.sheet.ro td.wrapcell { white-space: normal; min-width: 180px; max-width: 320px; }
+table.sheet td.nowrap { white-space: nowrap; }
+.sheetabs { align-items: center; }
+.sheetabs button.active, .sheetabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

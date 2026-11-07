@@ -51,6 +51,7 @@
         ${E.field({ name: 'joinDate', label: 'Joining date', type: 'date', value: e.joinDate, required: true })}
         ${existing ? '' : E.field({ name: 'pin', label: 'Member PIN (6 digits)', value: '', placeholder: 'Leave empty to generate one', attrs: 'inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="off"', help: 'The member signs in with their team password and this PIN. You can reset it later.' })}
         ${existing ? E.field({ name: 'status', label: 'Status', type: 'select', value: e.status, options: ['active', 'inactive', 'resigned', 'terminated'] }) : ''}
+        ${existing ? '' : html`<div class="sect">How is this member paid?</div>${E.payFields()}`}
         ${!existing && E.isLeader() ? html`<div class="full muted small">The new member joins <b>${E.user.teamName || 'your team'}</b>.</div>` : ''}
         <div class="sect">Personal details</div>
         ${E.field({ name: 'phone', label: 'Phone', value: e.phone })}${E.field({ name: 'email', label: 'Email', type: 'email', value: e.email })}
@@ -59,8 +60,9 @@
         ${E.field({ name: 'address', label: 'Address', value: e.address })}
         ${E.field({ name: 'emergencyName', label: 'Emergency contact name', value: e.emergencyName })}${E.field({ name: 'emergencyPhone', label: 'Emergency contact phone', value: e.emergencyPhone })}
         ${extra.html}</div>`,
+      onOpen: (f) => { if (!existing) E.bindPay(f); },
       onSubmit: async (v, { close }) => {
-        const body = { ...v, teamId: v.teamId || undefined, shiftId: v.shiftId || null, gender: v.gender || null, pin: v.pin || undefined };
+        const body = { ...v, teamId: v.teamId || undefined, shiftId: v.shiftId || null, gender: v.gender || null, pin: v.pin || undefined, ...(existing ? {} : { pay: E.readPay(v) }) };
         if (existing) {
           await E.put(`/api/employees/${existing.id}`, body);
           E.toast('Saved');

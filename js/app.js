@@ -23,6 +23,23 @@
     document.head.append(s);
   });
 
+  // ---------------- the website access password ----------------
+  function showGate() {
+    document.title = E.settings.companyName || 'eTricks';
+    E.mount(app, html`<div class="landing"><main><div class="hero gate">${E.logo(true)}
+      <h1>This website is private</h1>
+      <p class="muted">Enter the access password to continue.</p>
+      <form id="gateForm" class="gatebox"><input type="password" name="password" placeholder="Access password" autocomplete="current-password" required autofocus>
+        <button class="btn primary">Continue</button><div class="gateerr" id="gateErr" hidden></div></form></div></main></div>`);
+    const form = E.$('#gateForm', app);
+    form.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const btn = E.$('button', form); const err = E.$('#gateErr', app);
+      btn.disabled = true; err.hidden = true;
+      try { await E.post('/api/gate', { password: form.elements.password.value }); boot(); } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; form.elements.password.select(); }
+    };
+  }
+
   // ---------------- landing ----------------
   async function showLanding() {
     document.title = `${E.settings.companyName || 'eTricks'} Hub`;
@@ -410,6 +427,7 @@
       E.user = user;
       if (me.companyName !== undefined) E.settings.companyName = me.companyName;
       else E.settings.companyName = (await E.get('/api/public/settings')).companyName; // older server
+      if (!user && me.gate && me.gate.required && !me.gate.passed) { stopNotifications(); app.onclick = null; showLanding.prefetch = null; showGate(); return; }
       if (!user) { stopNotifications(); app.onclick = null; if (!(await showLanding.prefetch)) showLanding.prefetch = null; await showLanding(); return; }
 
       const [mods, settings] = me.modules && me.settings ? [me.modules, me.settings] : await Promise.all([E.get('/api/modules'), E.get('/api/settings')]);

@@ -29,7 +29,7 @@
   E.page({
     id: 'settings', title: 'Settings & Backups', icon: '⚙', roles: ['admin'], group: 'Administration', order: 50,
     async render(el) {
-      const [s, backups, mods] = await Promise.all([E.get('/api/settings'), E.get('/api/backups'), E.get('/api/modules')]);
+      const [s, backups, mods, gate] = await Promise.all([E.get('/api/settings'), E.get('/api/backups'), E.get('/api/modules'), E.get('/api/gate/status')]);
       const size = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
       E.mount(el, html`${E.pageHead('Settings & backups', 'Company preferences, security, data safety and modules.')}
         <div class="grid cols-2">
@@ -48,6 +48,10 @@
             <div class="foot" style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary">Save settings</button></div></form>
           <div class="grid">
             <div class="card"><h3>Admin password</h3><p class="muted">Use a long, unique password. Heads of department are set from Departments, team leaders and team passwords from Teams.</p><button class="btn" id="adminPw">Change admin password</button></div>
+            <div class="card"><h3>Website access password</h3>
+              <p class="muted">Visitors must type this password before they can even see the departments or sign in. Only you can set, change or turn it off. A new password makes everyone who is not signed in type it again; people already signed in keep working.</p>
+              <p>${gate.enabled ? html`<span class="badge ok">On</span> <span class="muted small">since ${fmt.dateTime(gate.setAt)}</span>` : html`<span class="badge warn">Off</span> <span class="muted small">anybody who opens the website sees the departments</span>`}</p>
+              <div class="row"><button class="btn primary" id="gateSet">${gate.enabled ? 'Change the access password' : 'Set an access password'}</button>${gate.enabled ? html`<button class="btn danger" id="gateOff">Turn it off</button>` : ''}</div></div>
             <div class="card"><h3>Database backups <button class="btn sm primary" id="backupNow">Back up now</button></h3>
               <p class="muted small">A backup is created automatically every day and the newest 30 are kept. Download copies regularly and store them off this computer.</p>
               ${E.table([{ label: 'Backup', render: (b) => html`<span class="small">${b.name}</span>` }, { label: 'Size', render: (b) => size(b.size) }, { label: 'Created', render: (b) => fmt.dateTime(b.createdAt) },
@@ -72,6 +76,20 @@
         } catch (ex) { E.toast(ex.message, 'bad'); }
       };
       E.$('#backupNow', el).onclick = async () => { try { await E.post('/api/backups'); E.toast('Backup created'); E.pages.find((p) => p.id === 'settings').render(el); } catch (ex) { E.toast(ex.message, 'bad'); } };
+      E.$('#gateSet', el).onclick = () => E.modal({
+        title: gate.enabled ? 'Change the access password' : 'Set an access password', submit: 'Save password',
+        body: html`<p class="muted">Share this password only with your team and clients. Use at least 8 characters.</p><div class="form">${E.field({ name: 'password', label: 'Access password', type: 'password', required: true, full: true, attrs: 'autocomplete="new-password"' })}${E.field({ name: 'again', label: 'Type it again', type: 'password', required: true, full: true, attrs: 'autocomplete="new-password"' })}</div>`,
+        onSubmit: async (v, { close }) => {
+          if (v.password !== v.again) throw new Error('The two passwords are not the same');
+          await E.put('/api/gate', { password: v.password });
+          E.toast('Access password saved'); close(); E.pages.find((p) => p.id === 'settings').render(el);
+        },
+      });
+      const gateOff = E.$('#gateOff', el);
+      if (gateOff) gateOff.onclick = async () => {
+        if (!(await E.confirm('Turn the access password off? Anybody who opens the website will see the departments again.', { yes: 'Turn it off', danger: true }))) return;
+        try { await E.del('/api/gate'); E.toast('Access password is off'); E.pages.find((p) => p.id === 'settings').render(el); } catch (ex) { E.toast(ex.message, 'bad'); }
+      };
       E.$('#adminPw', el).onclick = () => E.modal({
         title: 'Change admin password', submit: 'Change password',
         body: html`<div class="form">${E.field({ name: 'currentPassword', label: 'Current password', type: 'password', required: true, full: true })}${E.field({ name: 'newPassword', label: 'New password (min 8 characters)', type: 'password', required: true, full: true })}</div>`,
