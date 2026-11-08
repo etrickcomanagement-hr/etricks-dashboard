@@ -26,7 +26,7 @@
             ${E.stat('On leave', d.today.onLeave)}
             ${E.stat('Not marked yet', d.today.notMarked, { cls: d.today.notMarked ? 'bad' : '' })}
             ${E.stat('Attendance to approve', d.pending.attendance, { cls: d.pending.attendance ? 'accent' : '' })}
-            ${E.stat('Leave requests pending', d.pending.leave, { cls: d.pending.leave ? 'accent' : '' })}
+            ${d.pending.leave === null ? '' : E.stat('Leave requests pending', d.pending.leave, { cls: d.pending.leave ? 'accent' : '' })}
             ${E.stat('Tasks to review', d.pending.tasks ?? 0, { cls: d.pending.tasks ? 'accent' : '' })}
             ${E.stat('Complaints to answer', d.pending.issues ?? 0, { cls: d.pending.issues ? 'accent' : '' })}
           </div>

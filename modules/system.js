@@ -29,7 +29,7 @@
   E.page({
     id: 'settings', title: 'Settings & Backups', icon: '⚙', roles: ['admin'], group: 'Administration', order: 50,
     async render(el) {
-      const [s, backups, mods, gate] = await Promise.all([E.get('/api/settings'), E.get('/api/backups'), E.get('/api/modules'), E.get('/api/gate/status')]);
+      const [s, backups, mods, gate, full] = await Promise.all([E.get('/api/settings'), E.get('/api/backups'), E.get('/api/modules'), E.get('/api/gate/status'), E.get('/api/backups/full')]);
       const size = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
       E.mount(el, html`${E.pageHead('Settings & backups', 'Company preferences, security, data safety and modules.')}
         <div class="grid cols-2">
@@ -52,8 +52,19 @@
               <p class="muted">Visitors must type this password before they can even see the departments or sign in. Only you can set, change or turn it off. A new password makes everyone who is not signed in type it again; people already signed in keep working.</p>
               <p>${gate.enabled ? html`<span class="badge ok">On</span> <span class="muted small">since ${fmt.dateTime(gate.setAt)}</span>` : html`<span class="badge warn">Off</span> <span class="muted small">anybody who opens the website sees the departments</span>`}</p>
               <div class="row"><button class="btn primary" id="gateSet">${gate.enabled ? 'Change the access password' : 'Set an access password'}</button>${gate.enabled ? html`<button class="btn danger" id="gateOff">Turn it off</button>` : ''}</div></div>
-            <div class="card"><h3>Database backups <button class="btn sm primary" id="backupNow">Back up now</button></h3>
-              <p class="muted small">A backup is created automatically every day and the newest 30 are kept. Download copies regularly and store them off this computer.</p>
+            <div class="card"><h3>Full backup <button class="btn sm primary" id="fullNow">Create full backup now</button></h3>
+              <p class="muted small">Every ${full.days} days eTricks makes a complete copy of <b>everything</b> in the software: departments, people, attendance, leave, tasks, finance, sheets, chats and settings. You get an alert when it is ready. <b>Download it within ${full.graceDays} days. A backup that is not downloaded is deleted automatically.</b> After you have downloaded it you can delete it from the server.</p>
+              <p class="small">${full.nextDue ? html`Next automatic backup: <b>${fmt.date(full.nextDue)}</b>` : ''}</p>
+              ${E.table([
+                { label: 'Backup', render: (b) => html`<span class="small"><b>${b.name}</b></span><div class="muted small">${fmt.dateTime(b.createdAt)} · ${fmt.num(b.tables)} tables · ${fmt.num(b.rows)} rows</div><div class="muted small" title="${b.sha256}">SHA-256 ${b.sha256.slice(0, 16)}…</div>` },
+                { label: 'Size', render: (b) => size(b.size) },
+                { label: 'Status', render: (b) => (b.status === 'ready' ? html`<span class="badge ${b.daysLeft <= 1 ? 'bad' : 'warn'}">Download within ${b.daysLeft} day${b.daysLeft === 1 ? '' : 's'}</span><div class="muted small">then it is deleted</div>`
+                  : b.status === 'downloaded' ? html`<span class="badge ok">Downloaded</span><div class="muted small">${fmt.dateTime(b.downloadedAt)}</div>`
+                  : html`<span class="badge">Deleted</span><div class="muted small">${b.removedReason || ''}</div>`) },
+                { label: '', class: 'right', render: (b) => (b.status === 'deleted' ? '' : html`<div class="actions"><a class="btn sm ${b.status === 'ready' ? 'primary' : ''}" data-dl href="/api/backups/full/${b.id}/download">${b.status === 'ready' ? 'Download' : 'Download again'}</a>${b.status === 'downloaded' ? html`<button class="btn sm danger" data-act="delfull" data-id="${b.id}">Delete from server</button>` : ''}</div>`) },
+              ], full.items, 'No full backup yet. The first one is made automatically when the first period ends, or press "Create full backup now".')}</div>
+            <div class="card"><h3>Daily safety copies <button class="btn sm" id="backupNow">Back up now</button></h3>
+              <p class="muted small">A safety copy of the database is made automatically every day and the newest 30 are kept on the server (older ones are removed by themselves). They protect you against mistakes; the full backup above is the one to keep on your own computer.</p>
               ${E.table([{ label: 'Backup', render: (b) => html`<span class="small">${b.name}</span>` }, { label: 'Size', render: (b) => size(b.size) }, { label: 'Created', render: (b) => fmt.dateTime(b.createdAt) },
                 { label: '', class: 'right', render: (b) => html`<a class="btn sm" href="/api/backups/${b.name}/download">Download</a>` }], backups.slice(0, 8), 'No backups yet.')}</div></div>
         </div>
@@ -76,6 +87,14 @@
         } catch (ex) { E.toast(ex.message, 'bad'); }
       };
       E.$('#backupNow', el).onclick = async () => { try { await E.post('/api/backups'); E.toast('Backup created'); E.pages.find((p) => p.id === 'settings').render(el); } catch (ex) { E.toast(ex.message, 'bad'); } };
+      const redraw = () => { E.pages.find((p) => p.id === 'settings').render(el); if (E.refreshBackupBar) E.refreshBackupBar(); };
+      E.$('#fullNow', el).onclick = async (ev) => {
+        const btn = ev.currentTarget; btn.disabled = true; btn.textContent = 'Making the backup…';
+        try { const b = await E.post('/api/backups/full'); E.toast(`Full backup created (${b.tables} tables, ${b.rows} rows). Download it now.`); } catch (ex) { E.toast(ex.message, 'bad'); }
+        redraw();
+      };
+      // The copy counts as downloaded when the whole file has arrived; look again a few seconds after the click.
+      E.$$('a[data-dl]', el).forEach((a) => a.addEventListener('click', () => { E.toast('Download started. This page updates when it has finished.'); setTimeout(redraw, 6000); }));
       E.$('#gateSet', el).onclick = () => E.modal({
         title: gate.enabled ? 'Change the access password' : 'Set an access password', submit: 'Save password',
         body: html`<p class="muted">Share this password only with your team and clients. Use at least 8 characters.</p><div class="form">${E.field({ name: 'password', label: 'Access password', type: 'password', required: true, full: true, attrs: 'autocomplete="new-password"' })}${E.field({ name: 'again', label: 'Type it again', type: 'password', required: true, full: true, attrs: 'autocomplete="new-password"' })}</div>`,
@@ -96,6 +115,11 @@
         onSubmit: async (v, { close }) => { await E.put('/api/auth/admin-password', v); E.toast('Admin password changed'); close(); },
       });
       E.actions(el, {
+        delfull: async (id) => {
+          const b = full.items.find((x) => String(x.id) === id);
+          if (!(await E.confirm(`Delete ${b.name} from the server? Make sure the downloaded file is saved safely on your computer. This cannot be undone.`, { yes: 'Delete from server', danger: true }))) return;
+          try { await E.del(`/api/backups/full/${id}`); E.toast('Backup deleted from the server'); redraw(); } catch (ex) { E.toast(ex.message, 'bad'); }
+        },
         toggle: async (id) => {
           const m = mods.find((x) => x.id === id);
           await E.put(`/api/modules/${id}`, { enabled: !m.enabled });

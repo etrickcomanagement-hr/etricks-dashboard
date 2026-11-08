@@ -135,7 +135,25 @@
   let notifTimer = null;
   let notifLastId = null;
   let notifItems = [];
-  const stopNotifications = () => { clearInterval(notifTimer); notifTimer = null; notifLastId = null; notifItems = []; stopAlerts(); };
+  // ---------------- full backup: the admin is reminded on every page until it is downloaded ----------------
+  let backupTimer = null;
+  async function pollBackupBar() {
+    const el = E.$('#backupBar');
+    if (!el) return;
+    try {
+      if (!E.user || E.user.role !== 'admin') { el.hidden = true; el.innerHTML = ''; return; }
+      const a = (await E.get('/api/backups/summary')).alert;
+      if (!a) { el.hidden = true; el.innerHTML = ''; return; }
+      const days = `${a.daysLeft} day${a.daysLeft === 1 ? '' : 's'}`;
+      const what = a.count > 1 ? `${a.count} full backups are waiting to be downloaded` : 'Your full backup is ready';
+      el.hidden = false;
+      E.mount(el, html`<div class="backupbar ${a.daysLeft <= 1 ? 'urgent' : ''}"><span>💾 <b>${what}.</b> Download ${a.count > 1 ? 'them' : 'it'} before ${E.fmt.date(a.expiresAt)} (${days} left). If you do not, ${a.count > 1 ? 'they are' : 'it is'} deleted automatically.</span><a class="btn sm primary" href="#/settings">Download now</a></div>`);
+    } catch { /* offline or signed out: try again */ }
+  }
+  E.refreshBackupBar = pollBackupBar;
+  const startBackupBar = () => { clearInterval(backupTimer); backupTimer = null; if (E.user && E.user.role === 'admin') { pollBackupBar(); backupTimer = setInterval(pollBackupBar, 10 * 60e3); } };
+
+  const stopNotifications = () => { clearInterval(notifTimer); notifTimer = null; notifLastId = null; notifItems = []; stopAlerts(); clearInterval(backupTimer); backupTimer = null; };
 
   const ago = (iso) => {
     const s = Math.max(1, Math.round((Date.now() - new Date(iso)) / 1000));
@@ -387,6 +405,7 @@
       <div>
         <div class="topbar"><button class="btn sm" id="burger" aria-label="Menu">☰</button>${E.logo()}<button class="btn sm bell" id="bell2" type="button" aria-label="Notifications">🔔<span class="bell-count" hidden></span></button></div>
         <div id="alertBar" hidden></div>
+        <div id="backupBar" hidden></div>
         <div id="pushBanner"></div>
         <main class="main" id="view"></main>
       </div></div>`);
@@ -399,6 +418,7 @@
     swRegistration().then(syncPush).catch(() => {}).finally(renderPushBanner);
     notifTimer = setInterval(pollNotifications, 30000);
     startAlerts();
+    startBackupBar();
     E.$('#side').onclick = (e) => { if (e.target.closest('a')) E.$('#side').classList.remove('open'); };
 
     const go = async () => {

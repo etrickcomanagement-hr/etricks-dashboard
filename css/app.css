@@ -109,6 +109,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pushbox.blocked, .pushbox.insecure, .pushbox.unsupported { border-color: rgba(255, 194, 61, .4); color: var(--muted); }
 .push-banner { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 28px; background: var(--accent-soft); border-bottom: 1px solid rgba(168, 255, 90, .3); }
 @media (max-width: 860px) { .push-banner { padding: 10px 14px; } }
+.backupbar { display: flex; justify-content: space-between; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 11px 28px; background: rgba(255, 194, 61, .14); border-bottom: 1px solid rgba(255, 194, 61, .5); font-size: 14px; }
+.backupbar.urgent { background: rgba(255, 93, 108, .16); border-bottom-color: var(--danger); }
+@media (max-width: 860px) { .backupbar { padding: 10px 14px; } }
 
 /* ---------- printable member report ---------- */
 @media print {
