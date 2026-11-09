@@ -363,3 +363,17 @@ table.sheet.ro td.wrapcell { white-space: normal; min-width: 180px; max-width: 3
 table.sheet td.nowrap { white-space: nowrap; }
 .sheetabs { align-items: center; }
 .sheetabs button.active, .sheetabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* ---------- chat: pictures and voice notes ---------- */
+.chatform { align-items: flex-end; }
+.chatform .chatcol { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.chatform .chatcol textarea { flex: none; width: 100%; }
+.chatbtns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.chatbtns .btn.icon { min-height: 44px; padding: 0 12px; font-size: 18px; line-height: 1; }
+.chatbtns .btn.icon.rec { border-color: var(--danger); color: #fff; background: rgba(255, 93, 108, .25); font-size: 14px; animation: alertpulse 1.2s ease-in-out infinite; }
+.pendingbox { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px; border: 1px dashed var(--line2); border-radius: 10px; }
+.pendingbox[hidden] { display: none; }
+.chatimg { display: block; max-width: 100%; max-height: 260px; border-radius: 10px; margin: 4px 0; object-fit: contain; background: var(--panel2); }
+.chatimg.small { max-height: 90px; }
+.chataudio { display: block; width: min(280px, 100%); height: 40px; margin: 4px 0; }
+.bubble { overflow-wrap: anywhere; }

@@ -17,21 +17,68 @@
   //   load()    -> { messages: [...] }       send(text)
   //   mine(m)   -> is it written by the person looking at the screen?     labelOf(m) -> name above the message
   // ====================================================================================
-  function mountChat(box, { load, send, mine, labelOf, placeholder, quick = [], urgent = false, active, every = 3000, sendLabel = 'Send' }) {
+  const toDataUrl = (blob) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(new Error('The file could not be read')); r.readAsDataURL(blob); });
+  const MAX_PIC = 3 * 1024 * 1024, MAX_VOICE = 2.5 * 1024 * 1024, MAX_VOICE_SECONDS = 180; // kept under what a web host accepts in one request
+  const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  // A picture from the phone or computer, made smaller so it sends fast (longest side 1600 px).
+  async function preparePicture(file) {
+    if (!/^image\//.test(file.type)) throw new Error('Please choose a picture');
+    const okType = /^image\/(jpeg|png|webp|gif)$/.test(file.type);
+    if (okType && file.size <= 600 * 1024) return file;
+    if (file.type === 'image/gif') { if (file.size > MAX_PIC) throw new Error('This GIF is too big (the most is 3 MB)'); return file; }
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(bmp.width * k)); cv.height = Math.max(1, Math.round(bmp.height * k));
+      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+      bmp.close?.();
+      const out = await new Promise((resolve) => cv.toBlob(resolve, 'image/jpeg', 0.82));
+      if (!out) throw new Error('x');
+      return out;
+    } catch {
+      if (okType && file.size <= MAX_PIC) return file;
+      throw new Error('This picture cannot be used. Please choose a JPEG or PNG picture (the most is 3 MB)');
+    }
+  }
+
+  function mountChat(box, { load, send, mine, labelOf, placeholder, quick = [], urgent = false, active, every = 3000, sendLabel = 'Send', fileUrl }) {
     E.mount(box, html`<div class="chatlog" tabindex="0" aria-live="polite"></div>
-      <div class="chatform"><textarea rows="2" maxlength="2000" placeholder="${placeholder}"></textarea><button type="button" class="btn primary ${urgent ? 'danger-solid' : ''}">${sendLabel}</button></div>
+      <div class="chatform"><div class="chatcol"><div class="pendingbox" hidden></div><textarea rows="2" maxlength="2000" placeholder="${placeholder}"></textarea></div>
+        <div class="chatbtns"><button type="button" class="btn icon" data-a="pic" title="Send a picture" aria-label="Send a picture"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg></button><button type="button" class="btn icon" data-a="mic" title="Record a voice note" aria-label="Record a voice note"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v4"/></svg></button>
+          <button type="button" class="btn primary send ${urgent ? 'danger-solid' : ''}">${sendLabel}</button><input type="file" accept="image/*" hidden></div></div>
       ${quick.length ? html`<div class="quick">${quick.map((q) => html`<button type="button" class="chip" data-q="${q}">${q}</button>`)}</div>` : ''}`);
     const log = E.$('.chatlog', box);
     const ta = E.$('textarea', box);
-    const btn = E.$('.chatform .btn', box);
+    const btn = E.$('.chatform .send', box);
+    const picBtn = E.$('[data-a=pic]', box);
+    const micBtn = E.$('[data-a=mic]', box);
+    const micIdle = micBtn.innerHTML;
+    const fileInput = E.$('input[type=file]', box);
+    const pendingBox = E.$('.pendingbox', box);
     let msgs = [];
     let sig = '';
     let lastId = 0;
     let timer = null;
     let first = true;
+    let pending = null; // { kind, blob, url } a picture or voice note waiting to be sent
+    let rec = null; // the voice note being recorded
+    let stick = true; // the log shows its bottom: stay there when a picture finishes loading
+    log.addEventListener('scroll', () => { stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 80; });
+    log.addEventListener('load', () => { if (stick) log.scrollTop = log.scrollHeight; }, true);
+
+    const setPending = (p) => {
+      if (pending?.url) URL.revokeObjectURL(pending.url);
+      pending = p;
+      pendingBox.hidden = !p;
+      E.mount(pendingBox, p ? html`${p.kind === 'image' ? html`<img class="chatimg small" alt="Picture to send" src="${p.url}">` : html`<audio class="chataudio" controls src="${p.url}"></audio>`}<button type="button" class="btn sm" data-rm>✕ Remove</button>` : html``);
+    };
+    pendingBox.addEventListener('click', (e) => { if (e.target.closest('[data-rm]')) setPending(null); });
 
     const draw = () => {
-      E.mount(log, msgs.length ? html`${msgs.map((m) => html`<div class="bubble ${mine(m) ? 'mine' : 'theirs'}"><div class="who">${labelOf(m)} · ${fmt.dateTime(m.createdAt)}</div><div class="body">${m.body}</div>${mine(m) && m.seen ? html`<div class="seen">✓ Seen</div>` : ''}</div>`)}`
+      E.mount(log, msgs.length ? html`${msgs.map((m) => html`<div class="bubble ${mine(m) ? 'mine' : 'theirs'}"><div class="who">${labelOf(m)} · ${fmt.dateTime(m.createdAt)}</div>${m.file && fileUrl
+        ? (m.file.kind === 'image' ? html`<a href="${fileUrl(m)}" target="_blank" rel="noopener"><img class="chatimg" loading="lazy" alt="Picture" src="${fileUrl(m)}"></a>` : html`<audio class="chataudio" controls preload="none" src="${fileUrl(m)}"></audio>`) : ''}${m.body ? html`<div class="body">${m.body}</div>` : ''}${mine(m) && m.seen ? html`<div class="seen">✓ Seen</div>` : ''}</div>`)}`
         : html`<div class="muted center" style="padding:24px 0">No messages yet.</div>`);
       log.scrollTop = log.scrollHeight;
     };
@@ -40,20 +87,66 @@
       try { r = await load(); } catch (ex) { if (ex.status === 403) { destroy(); E.toast(ex.message, 'bad'); } return; } // the chat became private to somebody else
       const next = `${r.messages.length}:${r.messages.at(-1)?.id}:${r.messages.filter((m) => m.seen).length}`;
       if (next === sig) return;
+      if ([...log.querySelectorAll('audio')].some((x) => !x.paused && !x.ended)) return; // do not cut a voice note that is playing: show the new message right after it
       const newest = r.messages.at(-1)?.id || 0;
       if (!first && newest > lastId && r.messages.some((m) => m.id > lastId && !mine(m))) E.beep?.(urgent);
       sig = next; lastId = newest; first = false; msgs = r.messages; draw();
     };
     const submit = async () => {
+      if (rec) { E.toast('Stop the recording first', 'bad'); return; }
       const text = ta.value.trim();
-      if (!text) return;
+      if (!text && !pending) return;
       btn.disabled = true;
-      try { await send(text); ta.value = ''; await pull(); } catch (ex) { E.toast(ex.message, 'bad'); } finally { btn.disabled = false; ta.focus(); }
+      try {
+        const attachment = pending ? { data: (await toDataUrl(pending.blob)).split(',')[1] } : null;
+        await send(text, attachment);
+        ta.value = ''; setPending(null);
+        await pull();
+      } catch (ex) { E.toast(ex.message, 'bad'); } finally { btn.disabled = false; ta.focus(); }
     };
     btn.onclick = submit;
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
+
+    // a picture
+    picBtn.onclick = () => { if (rec) return; fileInput.value = ''; fileInput.click(); };
+    fileInput.onchange = async () => {
+      const f = fileInput.files?.[0];
+      if (!f) return;
+      try { const blob = await preparePicture(f); setPending({ kind: 'image', blob, url: URL.createObjectURL(blob) }); } catch (ex) { E.toast(ex.message, 'bad'); }
+    };
+
+    // a voice note: tap the microphone to start, tap again to stop, listen, then send
+    const stopRecording = (keep) => { if (rec) { rec.keep = keep; try { rec.mr.stop(); } catch { /* already stopped */ } } };
+    micBtn.onclick = async () => {
+      if (rec) { stopRecording(true); return; }
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { E.toast('Voice notes need a newer browser, and a secure (https) address', 'bad'); return; }
+      let stream;
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { E.toast('The microphone is blocked. Allow it for this website (lock icon next to the address) and try again.', 'bad'); return; }
+      const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find((t) => MediaRecorder.isTypeSupported?.(t));
+      let mr;
+      try { mr = new MediaRecorder(stream, { ...(type ? { mimeType: type } : {}), audioBitsPerSecond: 32000 }); } catch { stream.getTracks().forEach((t) => t.stop()); E.toast('This browser cannot record voice notes', 'bad'); return; }
+      const chunks = [];
+      let secs = 0;
+      rec = { mr, keep: true };
+      setPending(null);
+      micBtn.classList.add('rec'); micBtn.textContent = `⏹ ${clock(0)}`; micBtn.title = 'Stop recording';
+      const tick = setInterval(() => { secs++; micBtn.textContent = `⏹ ${clock(secs)}`; if (secs >= MAX_VOICE_SECONDS) stopRecording(true); }, 1000);
+      mr.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+      mr.onstop = () => {
+        clearInterval(tick); stream.getTracks().forEach((t) => t.stop());
+        const keep = rec?.keep; rec = null;
+        micBtn.classList.remove('rec'); micBtn.innerHTML = micIdle; micBtn.title = 'Record a voice note';
+        if (!keep || !chunks.length) return;
+        const blob = new Blob(chunks, { type: mr.mimeType || type || 'audio/webm' });
+        if (secs < 1) { E.toast('That was too short', 'bad'); return; }
+        if (blob.size > MAX_VOICE) { E.toast('The voice note is too long. Please keep it under 3 minutes.', 'bad'); return; }
+        setPending({ kind: 'audio', blob, url: URL.createObjectURL(blob) });
+      };
+      mr.start(1000);
+    };
+
     box.addEventListener('click', (e) => { const c = e.target.closest('[data-q]'); if (c) { ta.value = c.dataset.q; ta.focus(); } });
-    const destroy = () => { clearInterval(timer); timer = null; };
+    const destroy = () => { clearInterval(timer); timer = null; stopRecording(false); setPending(null); };
     timer = setInterval(() => { if (!active()) destroy(); else pull(); }, every);
     pull();
     return { destroy, pull, focus: () => ta.focus() };
@@ -103,7 +196,7 @@
     });
     chat = mountChat(E.$('#chatbox', form), {
       load: async () => { const r = await E.get(`/api/clients/${client.id}/chat?channel=${channel}`); E.mount(note, ownerNote(r)); return r; },
-      send: (body) => E.post(`/api/clients/${client.id}/chat`, { channel, body }),
+      send: (body, attachment) => E.post(`/api/clients/${client.id}/chat`, { channel, body, attachment }), fileUrl: (m) => `/api/clients/${client.id}/chat/files/${m.file.id}`,
       mine: (m) => !m.fromClient, labelOf: (m) => (m.fromClient ? `Client ${client.username}` : `${m.author} (eTricks)`),
       placeholder: alert ? 'Reply to the alert…' : 'Write to the client…', urgent: alert, every: alert ? 2500 : 4000,
       quick: alert ? ['Received, thank you.', 'Please send the code (OTP) now.', 'Please confirm you are available.', 'Done. Please check.'] : [],
@@ -410,15 +503,16 @@
         load: async () => {
           clients = await E.get('/api/clients');
           const needs = (c) => (alert ? c.alertNeedsReply : c.inquiryNeedsReply);
+          const hid = (c) => c.chat === 'colleague' && !E.isAdmin(); // a colleague's private chat is hidden from colleagues, never from the admin
           const at = (c) => (alert ? c.lastAlertAt : c.lastInquiryAt);
           const sorted = [...clients].filter((c) => c.status === 'active').sort((a, b) => Number(needs(b)) - Number(needs(a)) || String(at(b) || '').localeCompare(String(at(a) || '')));
           const waiting = sorted.filter(needs).length;
           return html`${waiting ? html`<div class="alertnote"><b>${waiting} client${waiting === 1 ? ' is' : 's are'} waiting for an answer.</b> Answer first, then the rest.</div>` : ''}
             ${E.table([
               { label: 'Client', render: (c) => html`<b>${c.username}</b>` },
-              { label: 'Last message', render: (c) => (c.chat === 'colleague' ? html`<span class="muted">-</span>` : at(c) ? fmt.dateTime(at(c)) : html`<span class="muted">No messages yet</span>`) },
-              { label: 'Status', render: (c) => (c.chat === 'colleague' ? html`<span class="badge">🔒 Private to a colleague</span>` : needs(c) ? html`<span class="badge bad">${alert ? 'ALERT: needs a reply now' : 'Needs a reply'}</span>` : at(c) ? html`<span class="badge ok">Answered</span>` : '') },
-              { label: '', class: 'right', render: (c) => (c.chat === 'colleague' ? '' : html`<button class="btn sm ${needs(c) ? 'primary' : ''}" data-act="open" data-id="${c.id}">${needs(c) ? 'Answer now' : 'Open'}</button>`) },
+              { label: 'Last message', render: (c) => (hid(c) ? html`<span class="muted">-</span>` : at(c) ? fmt.dateTime(at(c)) : html`<span class="muted">No messages yet</span>`) },
+              { label: 'Status', render: (c) => html`${hid(c) ? html`<span class="badge">🔒 Private to a colleague</span>` : needs(c) ? html`<span class="badge bad">${alert ? 'ALERT: needs a reply now' : 'Needs a reply'}</span>` : at(c) ? html`<span class="badge ok">Answered</span>` : ''}${E.isAdmin() && c.chatOwnerName ? html`<div class="muted small">🔒 ${c.chatOwnerName} answers this client</div>` : ''}` },
+              { label: '', class: 'right', render: (c) => (hid(c) ? '' : html`<button class="btn sm ${needs(c) ? 'primary' : ''}" data-act="open" data-id="${c.id}">${needs(c) ? 'Answer now' : 'Open'}</button>`) },
             ], sorted, 'No client is assigned to you yet.')}`;
         },
         bind: (box, refresh) => E.actions(box, { open: (cid) => staffChat(clients.find((c) => String(c.id) === cid), channel, refresh) }),
@@ -428,7 +522,7 @@
           E.modal({
             title: 'Raise an alert to a client', submit: 'Open the alert chat',
             body: html`<p class="muted">Use this when you need something from the client right now, for example a code (OTP). The client gets an urgent notification and a red banner.</p>
-              <div class="form">${E.field({ name: 'clientId', label: 'Client ID', type: 'select', required: true, full: true, options: [{ value: '', label: 'Select…' }, ...clients.filter((c) => c.status === 'active' && c.chat !== 'colleague').map((c) => ({ value: c.id, label: c.username }))] })}</div>`,
+              <div class="form">${E.field({ name: 'clientId', label: 'Client ID', type: 'select', required: true, full: true, options: [{ value: '', label: 'Select…' }, ...clients.filter((c) => c.status === 'active' && (c.chat !== 'colleague' || E.isAdmin())).map((c) => ({ value: c.id, label: c.username }))] })}</div>`,
             onSubmit: async (v, { close }) => { close(); staffChat(clients.find((c) => String(c.id) === v.clientId), 'alert', ctrl.refresh); },
           });
         },
@@ -492,7 +586,7 @@
       ${alert ? html`<div class="alertnote"><b>Urgent channel.</b> ${intro}</div>` : html`<div class="muted small" style="margin-bottom:8px">${intro}</div>`}
       <div id="chatbox" class="chatbox big ${alert ? 'alertbox' : ''}"></div>`);
     mountChat(E.$('#chatbox', el), {
-      load: () => E.get(`/api/portal/chat?channel=${channel}`), send: (body) => E.post('/api/portal/chat', { channel, body }),
+      load: () => E.get(`/api/portal/chat?channel=${channel}`), send: (body, attachment) => E.post('/api/portal/chat', { channel, body, attachment }), fileUrl: (m) => `/api/portal/chat/files/${m.file.id}`,
       mine: (m) => m.from === 'you', labelOf: (m) => (m.from === 'you' ? 'You' : 'eTricks'),
       placeholder: alert ? 'Type your urgent message…' : 'Type your message…', urgent: alert, every: alert ? 2500 : 3500,
       active: () => el.isConnected && location.hash === `#/${id}`, sendLabel: alert ? '🚨 Send alert' : 'Send', ...opts,
