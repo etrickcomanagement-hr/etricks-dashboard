@@ -4,13 +4,20 @@
 
   const STAFF = ['admin', 'hod', 'leader', 'member'];
   const staffGroup = () => 'Clients';
-  const money = (n) => fmt.money(n);
-  const revenue = (n) => html`<span class="${n < 0 ? 'neg' : 'pos'}">${money(n)}</span>`;
   const dash = (v) => v || html`<span class="muted">-</span>`;
 
-  // The four numbers of a client, as cards.
-  const numbers = (t, { sub = "" } = {}) => html`<div class="stats quad">${E.stat('Orders', fmt.num(t.orders), { sub })}${E.stat('Investment', money(t.investment))}${E.stat('Sales', money(t.sales), { cls: 'accent' })}
-    ${E.stat('Revenue', money(t.revenue), { cls: t.revenue < 0 ? 'bad' : 'accent', sub: 'sales − investment' })}</div>`;
+  // Every update has its own currency (AUD, USD or GBP). Figures are always shown in the currency they were written in.
+  const CUR_LABEL = { AUD: 'AUD $', USD: 'USD $', GBP: 'GBP £' };
+  const CUR_OPTS = ['AUD', 'USD', 'GBP'].map((c) => ({ value: c, label: CUR_LABEL[c] }));
+  const moneyIn = (n, cur) => { try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur || 'USD', maximumFractionDigits: 2 }).format(n || 0); } catch { return Number(n || 0).toFixed(2); } };
+  const revenueIn = (n, cur) => html`<span class="${n < 0 ? 'neg' : 'pos'}">${moneyIn(n, cur)}</span>`;
+  const defaultCur = () => { try { const v = localStorage.getItem('etx-update-currency'); if (CUR_LABEL[v]) return v; } catch { /* no storage */ } return CUR_LABEL[E.settings.currency] ? E.settings.currency : 'USD'; };
+  // The four numbers of a client in one currency, as cards.
+  const numbers = (t, cur, { sub = '' } = {}) => html`<div class="stats quad">${E.stat('Orders', fmt.num(t.orders), { sub })}${E.stat('Investment', moneyIn(t.investment, cur))}${E.stat('Sales', moneyIn(t.sales, cur), { cls: 'accent' })}
+    ${E.stat('Revenue', moneyIn(t.revenue, cur), { cls: t.revenue < 0 ? 'bad' : 'accent', sub: 'sales − investment' })}</div>`;
+  // The figures of a client in ITS currency: "AUD 3 orders · A$300.00 sales · revenue A$200.00"
+  const inClientCurrency = (t, cur, full = false) => html`<div><span class="badge">${cur}</span> <b>${fmt.num(t.orders)}</b> order${t.orders === 1 ? '' : 's'} · ${full ? html`${moneyIn(t.investment, cur)} invested · ` : ''}<b>${moneyIn(t.sales, cur)}</b> sales · revenue ${moneyIn(t.revenue, cur)}</div>`;
+  const salesCell = (t, cur) => html`<div>${moneyIn(t.sales, cur)}</div>`;
 
   // ====================================================================================
   // A chat that keeps itself up to date. Used inline by the client portal and in a window by the team.
@@ -283,6 +290,7 @@
           : E.field({ name: 'password', label: 'Portal password', type: 'password', required: true, help: 'At least 8 characters. You give it to the client.', attrs: 'autocomplete="new-password"' })}
         ${E.field({ name: 'departmentId', label: 'Department', type: 'select', required: true, value: c.departmentId ?? '', options: [{ value: '', label: 'Select…' }, ...E.idOptions(depts)] })}
         ${E.field({ name: 'teamId', label: 'Team that works for this client', type: 'select', value: c.teamId ?? '', options: teamOpts(c.departmentId), help: 'Pick the team, then choose below exactly which of its people work for this client.' })}
+        ${E.field({ name: 'currency', label: 'Currency shown to this client', type: 'select', required: true, value: c.currency || defaultCur(), options: CUR_OPTS, help: 'The client sees all its sales in this currency. An update written in another currency is converted with the exchange rates in Settings.' })}
         <div class="sect">Select team members</div>
         <div class="full" id="peopleBox"></div>
         <div class="sect">Private details (only the admin sees these)</div>
@@ -364,11 +372,11 @@
           const waiting = rows.filter((c) => c.alertNeedsReply).length;
           return html`<div class="stats">${E.stat('Clients', rows.length)}${E.stat('Active', rows.filter((c) => c.status === 'active').length, { cls: 'accent' })}${E.stat('Alerts waiting', waiting, { cls: waiting ? 'bad' : '' })}</div>
             ${E.table([
-              { label: 'Client', render: (c) => html`<b>${c.username}</b>${c.displayName ? html`<div class="muted small">${c.displayName}</div>` : ''}` },
+              { label: 'Client', render: (c) => html`<b>${c.username}</b> <span class="badge">${c.currency}</span>${c.displayName ? html`<div class="muted small">${c.displayName}</div>` : ''}` },
               { label: 'Department / team', render: (c) => html`${c.departmentName}<div class="muted small">${c.teamName || 'Whole department'}</div>` },
               { label: 'Team members', render: (c) => (c.staffCount ? html`${c.staffCount} chosen` : html`<span class="badge warn">Nobody chosen</span>`) },
               { label: 'Status', render: (c) => (c.status === 'active' ? html`<span class="badge ok">Active</span>` : html`<span class="badge bad">Disabled</span>`) },
-              { label: 'Today (sales)', class: 'num', render: (c) => money(c.today.sales) }, { label: 'Total sales', class: 'num', render: (c) => money(c.total.sales) },
+              { label: 'Today (sales)', class: 'num', render: (c) => salesCell(c.today, c.currency) }, { label: 'Total sales', class: 'num', render: (c) => salesCell(c.total, c.currency) },
               { label: 'Last sign-in', render: (c) => (c.lastLoginAt ? fmt.dateTime(c.lastLoginAt) : html`<span class="muted">Never</span>`) },
               { label: 'Chat', render: (c) => html`${c.alertNeedsReply ? html`<span class="badge bad">Alert waiting</span> ` : ''}${c.inquiryNeedsReply ? html`<span class="badge warn">Message waiting</span>` : ''}${!c.alertNeedsReply && !c.inquiryNeedsReply ? html`<span class="muted">-</span>` : ''}` },
               { label: '', class: 'right', render: (c) => html`<div class="actions"><button class="btn sm" data-act="chat" data-id="${c.id}">Chat</button><button class="btn sm" data-act="alerts" data-id="${c.id}">Alerts</button><button class="btn sm" data-act="people" data-id="${c.id}">Members</button><button class="btn sm" data-act="edit" data-id="${c.id}">Edit</button><button class="btn sm" data-act="pw" data-id="${c.id}">🔑</button><button class="btn sm danger" data-act="del" data-id="${c.id}">Delete</button></div>` },
@@ -391,7 +399,8 @@
   // ====================================================================================
   function updateForm(clients, existing, preset, onSaved) {
     const e = existing || { date: E.today(), clientId: preset };
-    E.modal({
+    const curOf = (id) => clients.find((c) => String(c.id) === String(id))?.currency;
+    const { form } = E.modal({
       title: existing ? 'Edit client update' : 'Add client update', wide: true,
       body: html`<div class="form">
         ${E.field({ name: 'clientId', label: 'Client ID', type: 'select', required: true, value: e.clientId ?? '', full: true, options: [{ value: '', label: 'Select the client…' }, ...clients.map((c) => ({ value: c.id, label: c.username }))] })}
@@ -401,11 +410,19 @@
         ${E.field({ name: 'orders', label: 'Orders', type: 'number', value: e.orders ?? '', attrs: 'min="0" step="1"' })}
         ${E.field({ name: 'investment', label: 'Investment', type: 'number', value: e.investment ?? '', attrs: 'min="0" step="0.01"' })}
         ${E.field({ name: 'sales', label: 'Sales', type: 'number', value: e.sales ?? '', attrs: 'min="0" step="0.01"' })}
-        <div class="muted small" style="align-self:end;padding-bottom:10px">Revenue is worked out for the client: sales − investment.</div>
+        ${E.field({ name: 'currency', label: 'Currency', type: 'select', required: true, value: e.currency || curOf(e.clientId) || defaultCur(), options: CUR_OPTS })}
+        <div class="muted small" style="align-self:end;padding-bottom:10px">It starts as the client's currency. If you write the update in another one, the client sees it converted into its own. Revenue is worked out: sales − investment.</div>
         ${E.field({ name: 'note', label: 'Update for the client (what was done today)', type: 'textarea', value: e.note, full: true, attrs: 'rows="4"', placeholder: 'e.g. Listed 20 products, shipped 5 orders, answered 2 buyer messages' })}</div>
         <p class="muted small"><b>The client reads this note.</b> It is shown as an update from "eTricks". Do not write your own name, a colleague's name or anything private.</p>`,
+      onOpen: (f) => {
+        // picking a client sets the currency to that client's, until somebody chooses a currency by hand
+        let touched = !!existing;
+        f.elements.currency.addEventListener('change', () => { touched = true; });
+        f.elements.clientId.addEventListener('change', () => { const c = curOf(f.elements.clientId.value); if (!touched && c) f.elements.currency.value = c; });
+      },
       onSubmit: async (v, { close }) => {
         const body = { ...v, clientId: Number(v.clientId) };
+        try { localStorage.setItem('etx-update-currency', v.currency); } catch { /* no storage */ }
         if (existing) await E.put(`/api/client-reports/${existing.id}`, body); else await E.post('/api/client-reports', body);
         E.toast('Saved'); close(); onSaved();
       },
@@ -433,19 +450,19 @@
           const day = E.today();
           return html`${clients.length ? html`<div class="grid cols-2" style="margin-bottom:16px">${clients.filter((c) => !f.clientId || String(c.id) === f.clientId).map((c) => html`<div class="card">
               <h3><span>${c.username}</span><button class="btn sm primary" data-act="addfor" data-id="${c.id}">+ Update</button></h3>
-              <div class="muted small">Today</div><div><b>${fmt.num(c.today.orders)}</b> orders · <b>${money(c.today.sales)}</b> sales · revenue ${money(c.today.revenue)}</div>
-              <div class="muted small" style="margin-top:8px">All time</div><div><b>${fmt.num(c.total.orders)}</b> orders · ${money(c.total.investment)} invested · <b>${money(c.total.sales)}</b> sales · revenue ${money(c.total.revenue)}</div></div>`)}</div>`
+              <div class="muted small">Today</div>${inClientCurrency(c.today, c.currency)}
+              <div class="muted small" style="margin-top:8px">All time</div>${inClientCurrency(c.total, c.currency, true)}</div>`)}</div>`
             : html`<div class="card empty" style="margin-bottom:16px">No client is assigned to you yet. The admin chooses which people work for each client.</div>`}
             ${E.table([
               { label: 'Date', render: (x) => fmt.date(x.date) }, { label: 'Client', render: (x) => html`<b>${x.username}</b>` },
               { label: 'Market / store', render: (x) => html`${dash(x.market)}<div class="muted small">${x.store || ''}</div>` },
-              { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) }, { label: 'Investment', class: 'num', render: (x) => money(x.investment) },
-              { label: 'Sales', class: 'num', render: (x) => money(x.sales) }, { label: 'Revenue', class: 'num', render: (x) => revenue(x.revenue) },
+              { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) }, { label: 'Investment', class: 'num', render: (x) => moneyIn(x.investment, x.currency) },
+              { label: 'Sales', class: 'num', render: (x) => moneyIn(x.sales, x.currency) }, { label: 'Revenue', class: 'num', render: (x) => revenueIn(x.revenue, x.currency) },
               { label: 'Update the client reads', class: 'wrap', render: (x) => x.note || '' },
               { label: 'Written by', render: (x) => html`<span class="muted small">${x.by}</span>` },
               { label: '', class: 'right', render: (x) => (x.canEdit ? html`<div class="actions"><button class="btn sm" data-act="edit" data-id="${x.id}">Edit</button><button class="btn sm danger" data-act="del" data-id="${x.id}">Delete</button></div>` : '') },
             ], rows, 'No updates in this period.')}
-            ${rows.length ? html`<p class="muted small" style="margin-top:8px">Shown: ${fmt.num(r.totals.orders)} orders · investment ${money(r.totals.investment)} · sales ${money(r.totals.sales)} · revenue ${money(r.totals.revenue)}</p>` : ''}`;
+            ${rows.length ? html`<div class="muted small" style="margin-top:8px">Shown: ${(r.totalsBy || []).map((t, i) => html`${i ? ' | ' : ''}<b>${t.currency}</b> ${fmt.num(t.orders)} orders · investment ${moneyIn(t.investment, t.currency)} · sales ${moneyIn(t.sales, t.currency)} · revenue ${moneyIn(t.revenue, t.currency)}`)}</div>` : ''}`;
         },
         bind: (box, refresh) => E.actions(box, {
           edit: (id) => updateForm(clients, rows.find((r) => String(r.id) === id), null, refresh),
@@ -509,24 +526,31 @@
     id: 'portal-sales', title: 'Sales', icon: '▦', roles: CLIENT, order: 1,
     async render(el) {
       const load = async (from, to) => E.get(`/api/portal/sales${E.qs({ from, to })}`);
+      const block = (c, many) => {
+        const max = Math.max(1, ...c.chart.map((x) => x.sales));
+        const cur = c.currency;
+        return html`<section style="margin-bottom:34px">
+          ${many ? html`<h2 style="margin:0 0 14px">${CUR_LABEL[cur] || cur}</h2>` : ''}
+          <h3 style="margin:0 0 10px">Today <span class="muted" style="font-weight:400;font-size:14px">· ${fmt.date(c.today.date)}</span></h3>
+          ${numbers(c.today, cur, { sub: c.today.orders ? 'received today' : 'nothing reported yet today' })}
+          <h3 style="margin:26px 0 10px">Daily</h3>
+          <div class="card"><h3>Sales: last 14 days (${cur})</h3><div class="bars">${c.chart.map((x) => html`<div class="b"><span class="val">${x.sales ? fmt.num(Math.round(x.sales)) : ''}</span><div class="track"><div class="fill" style="height:${(x.sales / max) * 100}%"></div></div><span class="lab">${x.date.slice(8)}</span></div>`)}</div></div>
+          <div style="margin-top:14px">${E.table([
+            { label: 'Date', render: (x) => html`<b>${fmt.date(x.date)}</b>` }, { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) }, { label: 'Investment', class: 'num', render: (x) => moneyIn(x.investment, cur) },
+            { label: 'Sales', class: 'num', render: (x) => moneyIn(x.sales, cur) }, { label: 'Revenue', class: 'num', render: (x) => revenueIn(x.revenue, cur) },
+            { label: 'What eTricks did', class: 'wrap', render: (x) => html`${x.updates.filter((u) => u.note || u.market || u.store).map((u) => html`<div class="small">${[u.market, u.store].filter(Boolean).join(' · ')}${u.note ? html`${u.market || u.store ? ': ' : ''}${u.note}` : ''}</div>`)}${x.updates.every((u) => !u.note && !u.market && !u.store) ? html`<span class="muted small">-</span>` : ''}` },
+          ], c.days, 'No updates in this period.')}</div>
+          ${c.days.length ? html`<p class="muted small" style="margin-top:6px">In this period: ${fmt.num(c.range.orders)} orders · investment ${moneyIn(c.range.investment, cur)} · sales ${moneyIn(c.range.sales, cur)} · revenue ${moneyIn(c.range.revenue, cur)}</p>` : ''}
+          <h3 style="margin:26px 0 10px">Total <span class="muted" style="font-weight:400;font-size:14px">· ${c.total.since ? `since ${fmt.date(c.total.since)} · ${c.total.days} day${c.total.days === 1 ? '' : 's'}` : 'nothing yet'}</span></h3>
+          ${numbers(c.total, cur, { sub: 'everything so far' })}
+          <p class="muted small">This month: ${fmt.num(c.month.orders)} orders · investment ${moneyIn(c.month.investment, cur)} · sales ${moneyIn(c.month.sales, cur)} · revenue ${moneyIn(c.month.revenue, cur)}</p></section>`;
+      };
       const draw = async (from, to) => {
         const d = await load(from, to);
-        const max = Math.max(1, ...d.chart.map((x) => x.sales));
-        E.mount(el, html`${E.pageHead('Your sales', `Client ${d.username} · updated daily by eTricks`, html`<button class="btn" data-act="refresh">↻ Refresh</button>`)}
-          <h3 style="margin:0 0 10px">Today <span class="muted" style="font-weight:400;font-size:14px">· ${fmt.date(d.today.date)}</span></h3>
-          ${numbers(d.today, { sub: d.today.orders ? 'received today' : 'nothing reported yet today' })}
-          <h3 style="margin:26px 0 10px">Daily</h3>
-          <div class="card"><h3>Sales - last 14 days</h3><div class="bars">${d.chart.map((x) => html`<div class="b"><span class="val">${x.sales ? fmt.num(Math.round(x.sales)) : ''}</span><div class="track"><div class="fill" style="height:${(x.sales / max) * 100}%"></div></div><span class="lab">${x.date.slice(8)}</span></div>`)}</div></div>
-          <form class="filters" id="range" style="margin-top:14px">${E.field({ name: 'from', label: 'From', type: 'date', value: d.from })}${E.field({ name: 'to', label: 'To', type: 'date', value: d.to })}</form>
-          ${E.table([
-            { label: 'Date', render: (x) => html`<b>${fmt.date(x.date)}</b>` }, { label: 'Orders', class: 'num', render: (x) => fmt.num(x.orders) }, { label: 'Investment', class: 'num', render: (x) => money(x.investment) },
-            { label: 'Sales', class: 'num', render: (x) => money(x.sales) }, { label: 'Revenue', class: 'num', render: (x) => revenue(x.revenue) },
-            { label: 'What eTricks did', class: 'wrap', render: (x) => html`${x.updates.filter((u) => u.note || u.market || u.store).map((u) => html`<div class="small">${[u.market, u.store].filter(Boolean).join(' · ')}${u.note ? html`${u.market || u.store ? ': ' : ''}${u.note}` : ''}</div>`)}${x.updates.every((u) => !u.note && !u.market && !u.store) ? html`<span class="muted small">-</span>` : ''}` },
-          ], d.days, 'No updates in this period.')}
-          ${d.days.length ? html`<p class="muted small" style="margin-top:6px">In this period: ${fmt.num(d.range.orders)} orders · investment ${money(d.range.investment)} · sales ${money(d.range.sales)} · revenue ${money(d.range.revenue)}</p>` : ''}
-          <h3 style="margin:26px 0 10px">Total <span class="muted" style="font-weight:400;font-size:14px">· ${d.total.since ? `since ${fmt.date(d.total.since)} · ${d.total.days} day${d.total.days === 1 ? '' : 's'}` : 'nothing yet'}</span></h3>
-          ${numbers(d.total, { sub: 'everything so far' })}
-          <p class="muted small">This month: ${fmt.num(d.month.orders)} orders · investment ${money(d.month.investment)} · sales ${money(d.month.sales)} · revenue ${money(d.month.revenue)}</p>`);
+        E.mount(el, html`${E.pageHead('Your sales', `Client ${d.username} · ${d.currency} · updated daily by eTricks`, html`<button class="btn" data-act="refresh">↻ Refresh</button>`)}
+          <form class="filters" id="range" style="margin-bottom:18px">${E.field({ name: 'from', label: 'From', type: 'date', value: d.from })}${E.field({ name: 'to', label: 'To', type: 'date', value: d.to })}</form>
+          ${d.converted ? html`<p class="muted small" style="margin:-6px 0 16px">All figures are in ${CUR_LABEL[d.currency] || d.currency}. An update written in another currency is converted with the exchange rates of the day.</p>` : ''}
+          ${d.currencies.length ? d.currencies.map((c) => block(c, false)) : html`<div class="card empty">Nothing has been reported yet. Your sales appear here as soon as the team adds the first update.</div>`}`);
         E.$('#range', el).addEventListener('change', (ev) => { const f = E.readForm(ev.currentTarget); if (f.from && f.to) draw(f.from, f.to).catch((ex) => E.toast(ex.message, 'bad')); });
       };
       const current = () => { const f = E.$('#range', el) ? E.readForm(E.$('#range', el)) : {}; return [f.from, f.to]; };
@@ -538,7 +562,7 @@
         if (document.querySelector('.overlay') || el.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
         try {
           const d = await load(...current());
-          const sig = `${d.total.orders}|${d.total.sales}|${d.total.investment}|${d.today.orders}|${d.today.sales}|${d.days.length}`;
+          const sig = d.currencies.map((c) => `${c.currency}:${c.total.orders}|${c.total.sales}|${c.total.investment}|${c.today.orders}|${c.today.sales}|${c.days.length}`).join(';');
           if (seen && sig !== seen) { const y = window.scrollY; await draw(...current()); window.scrollTo(0, y); E.toast('Your sales were updated'); }
           seen = sig;
         } catch { /* try again next time */ }
