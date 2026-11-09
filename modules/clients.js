@@ -84,7 +84,7 @@
     };
     const pull = async () => {
       let r;
-      try { r = await load(); } catch (ex) { if (ex.status === 403) { destroy(); E.toast(ex.message, 'bad'); } return; } // the chat became private to somebody else
+      try { r = await load(); } catch (ex) { if (ex.status === 403 || ex.status === 404) { destroy(); E.toast(ex.message, 'bad'); } return; } // e.g. the person was taken off this client
       const next = `${r.messages.length}:${r.messages.at(-1)?.id}:${r.messages.filter((m) => m.seen).length}`;
       if (next === sig) return;
       if ([...log.querySelectorAll('audio')].some((x) => !x.paused && !x.ended)) return; // do not cut a voice note that is playing: show the new message right after it
@@ -152,50 +152,18 @@
     return { destroy, pull, focus: () => ta.focus() };
   }
 
-  // Who answers this client, said in plain words above the chat. The conversation is private to the person who answered first.
-  const ownerNote = (r) => {
-    const admin = E.isAdmin();
-    if (r.chat === 'mine') return html`<div class="ownernote mine">🔒 <b>This conversation is yours.</b> Only you and the admin can see it. Colleagues cannot read it and get no notification from this client.
-      <button type="button" class="btn sm" data-own="release">Release it</button></div>`;
-    if (admin && r.chatOwnerName) return html`<div class="ownernote">🔒 <b>Private to ${r.chatOwnerName}</b> (and you). Nobody else sees this conversation.
-      <button type="button" class="btn sm" data-own="release">Release</button> <button type="button" class="btn sm" data-own="assign">Give to someone else</button></div>`;
-    if (admin) return html`<div class="ownernote open">Nobody has answered yet. The first colleague who replies becomes the only one who sees this conversation. <button type="button" class="btn sm" data-own="assign">Give it to someone</button></div>`;
-    return html`<div class="ownernote open">Nobody has answered this client yet. <b>When you reply, the conversation becomes private to you</b> (and the admin).</div>`;
-  };
-
-  // Admin: choose who answers this client.
-  async function assignOwner(client, done) {
-    const r = await E.get(`/api/clients/${client.id}/staff`);
-    const people = r.candidates.filter((e) => e.chosen);
-    if (!people.length) return E.toast('Nobody is chosen for this client yet. Add people under Members first.', 'bad');
-    E.modal({
-      title: `Who answers ${client.username}?`, submit: 'Give it',
-      body: html`<p class="muted">The conversation becomes private to that person (and you).</p><div class="form">${E.field({ name: 'employeeId', label: 'Person', type: 'select', required: true, full: true, options: [{ value: '', label: 'Select…' }, ...people.map((e) => ({ value: e.id, label: `${e.name} (${e.role})` }))] })}</div>`,
-      onSubmit: async (v, { close }) => { await E.put(`/api/clients/${client.id}/chat-owner`, { employeeId: Number(v.employeeId) }); E.toast('Done'); close(); done(); },
-    });
-  }
-
   // The team's side of one client's chat, in a window.
   async function staffChat(client, channel, onClose) {
     const alert = channel === 'alert';
     let chat;
-    try { await E.get(`/api/clients/${client.id}/chat?channel=${channel}`); } catch (ex) { E.toast(ex.message, 'bad'); onClose?.(); return; } // e.g. a colleague answers this client
     const { form, close } = E.modal({
       title: `${alert ? '🚨 Alerts' : 'Chat'} - ${client.username}`, wide: true, cancel: 'Close',
-      body: html`<div id="ownernote"></div>${alert ? html`<div class="alertnote"><b>Urgent channel.</b> Use it for codes (OTP), confidential details and anything that must be answered at once. The text is never shown in notifications.</div>`
-        : html`<div class="muted small" style="margin-bottom:8px">The client sees only "eTricks": not your name.</div>`}<div id="chatbox" class="chatbox ${alert ? 'alertbox' : ''}"></div>`,
+      body: html`${alert ? html`<div class="alertnote"><b>Urgent channel.</b> Use it for codes (OTP), confidential details and anything that must be answered at once. The text is never shown in notifications.</div>`
+        : html`<div class="muted small" style="margin-bottom:8px">The client sees only "eTricks": not your name. Everybody chosen for this client, the head and the admin can write here.</div>`}<div id="chatbox" class="chatbox ${alert ? 'alertbox' : ''}"></div>`,
     });
     const overlay = form.closest('.overlay');
-    const note = E.$('#ownernote', form);
-    note.addEventListener('click', async (ev) => {
-      const b = ev.target.closest('[data-own]'); if (!b) return;
-      try {
-        if (b.dataset.own === 'release') { await E.post(`/api/clients/${client.id}/chat/release`, {}); E.toast('Released'); chat.pull(true); }
-        else await assignOwner(client, () => chat.pull(true));
-      } catch (ex) { E.toast(ex.message, 'bad'); }
-    });
     chat = mountChat(E.$('#chatbox', form), {
-      load: async () => { const r = await E.get(`/api/clients/${client.id}/chat?channel=${channel}`); E.mount(note, ownerNote(r)); return r; },
+      load: () => E.get(`/api/clients/${client.id}/chat?channel=${channel}`),
       send: (body, attachment) => E.post(`/api/clients/${client.id}/chat`, { channel, body, attachment }), fileUrl: (m) => `/api/clients/${client.id}/chat/files/${m.file.id}`,
       mine: (m) => !m.fromClient, labelOf: (m) => (m.fromClient ? `Client ${client.username}` : `${m.author} (eTricks)`),
       placeholder: alert ? 'Reply to the alert…' : 'Write to the client…', urgent: alert, every: alert ? 2500 : 4000,
@@ -402,7 +370,6 @@
               { label: 'Status', render: (c) => (c.status === 'active' ? html`<span class="badge ok">Active</span>` : html`<span class="badge bad">Disabled</span>`) },
               { label: 'Today (sales)', class: 'num', render: (c) => money(c.today.sales) }, { label: 'Total sales', class: 'num', render: (c) => money(c.total.sales) },
               { label: 'Last sign-in', render: (c) => (c.lastLoginAt ? fmt.dateTime(c.lastLoginAt) : html`<span class="muted">Never</span>`) },
-              { label: 'Answered by', render: (c) => (c.chatOwnerName ? html`🔒 ${c.chatOwnerName}` : html`<span class="muted">Nobody yet</span>`) },
               { label: 'Chat', render: (c) => html`${c.alertNeedsReply ? html`<span class="badge bad">Alert waiting</span> ` : ''}${c.inquiryNeedsReply ? html`<span class="badge warn">Message waiting</span>` : ''}${!c.alertNeedsReply && !c.inquiryNeedsReply ? html`<span class="muted">-</span>` : ''}` },
               { label: '', class: 'right', render: (c) => html`<div class="actions"><button class="btn sm" data-act="chat" data-id="${c.id}">Chat</button><button class="btn sm" data-act="alerts" data-id="${c.id}">Alerts</button><button class="btn sm" data-act="people" data-id="${c.id}">Members</button><button class="btn sm" data-act="edit" data-id="${c.id}">Edit</button><button class="btn sm" data-act="pw" data-id="${c.id}">🔑</button><button class="btn sm danger" data-act="del" data-id="${c.id}">Delete</button></div>` },
             ], rows, 'No clients yet. Add the first one.')}`;
@@ -503,16 +470,15 @@
         load: async () => {
           clients = await E.get('/api/clients');
           const needs = (c) => (alert ? c.alertNeedsReply : c.inquiryNeedsReply);
-          const hid = (c) => c.chat === 'colleague' && !E.isAdmin(); // a colleague's private chat is hidden from colleagues, never from the admin
           const at = (c) => (alert ? c.lastAlertAt : c.lastInquiryAt);
           const sorted = [...clients].filter((c) => c.status === 'active').sort((a, b) => Number(needs(b)) - Number(needs(a)) || String(at(b) || '').localeCompare(String(at(a) || '')));
           const waiting = sorted.filter(needs).length;
           return html`${waiting ? html`<div class="alertnote"><b>${waiting} client${waiting === 1 ? ' is' : 's are'} waiting for an answer.</b> Answer first, then the rest.</div>` : ''}
             ${E.table([
               { label: 'Client', render: (c) => html`<b>${c.username}</b>` },
-              { label: 'Last message', render: (c) => (hid(c) ? html`<span class="muted">-</span>` : at(c) ? fmt.dateTime(at(c)) : html`<span class="muted">No messages yet</span>`) },
-              { label: 'Status', render: (c) => html`${hid(c) ? html`<span class="badge">🔒 Private to a colleague</span>` : needs(c) ? html`<span class="badge bad">${alert ? 'ALERT: needs a reply now' : 'Needs a reply'}</span>` : at(c) ? html`<span class="badge ok">Answered</span>` : ''}${E.isAdmin() && c.chatOwnerName ? html`<div class="muted small">🔒 ${c.chatOwnerName} answers this client</div>` : ''}` },
-              { label: '', class: 'right', render: (c) => (hid(c) ? '' : html`<button class="btn sm ${needs(c) ? 'primary' : ''}" data-act="open" data-id="${c.id}">${needs(c) ? 'Answer now' : 'Open'}</button>`) },
+              { label: 'Last message', render: (c) => (at(c) ? fmt.dateTime(at(c)) : html`<span class="muted">No messages yet</span>`) },
+              { label: 'Status', render: (c) => (needs(c) ? html`<span class="badge bad">${alert ? 'ALERT: needs a reply now' : 'Needs a reply'}</span>` : at(c) ? html`<span class="badge ok">Answered</span>` : '') },
+              { label: '', class: 'right', render: (c) => html`<button class="btn sm ${needs(c) ? 'primary' : ''}" data-act="open" data-id="${c.id}">${needs(c) ? 'Answer now' : 'Open'}</button>` },
             ], sorted, 'No client is assigned to you yet.')}`;
         },
         bind: (box, refresh) => E.actions(box, { open: (cid) => staffChat(clients.find((c) => String(c.id) === cid), channel, refresh) }),
@@ -522,7 +488,7 @@
           E.modal({
             title: 'Raise an alert to a client', submit: 'Open the alert chat',
             body: html`<p class="muted">Use this when you need something from the client right now, for example a code (OTP). The client gets an urgent notification and a red banner.</p>
-              <div class="form">${E.field({ name: 'clientId', label: 'Client ID', type: 'select', required: true, full: true, options: [{ value: '', label: 'Select…' }, ...clients.filter((c) => c.status === 'active' && (c.chat !== 'colleague' || E.isAdmin())).map((c) => ({ value: c.id, label: c.username }))] })}</div>`,
+              <div class="form">${E.field({ name: 'clientId', label: 'Client ID', type: 'select', required: true, full: true, options: [{ value: '', label: 'Select…' }, ...clients.filter((c) => c.status === 'active').map((c) => ({ value: c.id, label: c.username }))] })}</div>`,
             onSubmit: async (v, { close }) => { close(); staffChat(clients.find((c) => String(c.id) === v.clientId), 'alert', ctrl.refresh); },
           });
         },
