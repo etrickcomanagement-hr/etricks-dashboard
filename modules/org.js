@@ -36,7 +36,7 @@
       body: html`<div class="form">${E.field({ name: 'name', label: 'Name', value: head?.name, required: true, full: true })}
         ${E.field({ name: 'phone', label: 'Phone', value: head?.phone })}${E.field({ name: 'email', label: 'Email', type: 'email', value: head?.email })}
         ${E.field({ name: 'password', label: head ? 'New password (leave empty to keep)' : 'Portal password', type: 'password', required: !head, full: true, help: 'At least 8 characters. The head signs in to the Head of Department portal with only this password.', attrs: 'autocomplete="new-password"' })}</div>
-        <p class="muted small">The head can add teams, appoint the 3 team leaders and set their passwords. Changing the password signs the head out.</p>`,
+        <p class="muted small">The head can add teams, appoint up to 10 team leaders and set their passwords. Changing the password signs the head out.</p>`,
       onSubmit: async (v, { close }) => {
         await E.put(`/api/departments/${d.id}/head`, { ...v, password: v.password || undefined });
         E.bust('departments'); E.bust('emps'); E.toast('Saved'); close(); onSaved();
@@ -144,13 +144,13 @@
       let rows = [];
       const ctrl = await E.listPage(el, {
         title: E.isLeader() ? 'My team' : 'Teams',
-        subtitle: E.isLeader() ? 'Your team and its member password.' : 'Every department has up to 3 teams; each team has one leader and its own members.', dept: true,
+        subtitle: E.isLeader() ? 'Your team and its member password.' : 'Every department has up to 10 teams; each team has one leader and its own members.', dept: true,
         actions: E.seesAllTeams() ? html`<button class="btn primary" data-act="add">+ Add team</button>` : '',
-        // a department has one head and at most 3 team leaders, each leading one team
+        // a department has one head and at most 10 team leaders, each leading one team
         load: async (f) => {
           rows = await E.get(`/api/teams${E.qs(f)}`);
           const add = E.$('[data-act=add]', el);
-          if (add && E.isHead()) { add.hidden = rows.length >= 3; }
+          if (add && E.isHead()) { add.hidden = rows.length >= 10; }
           if (!rows.length) return html`<div class="card empty">${E.isLeader() ? 'You do not lead a team yet. Ask your head of department.' : 'No teams yet. Add the first one.'}</div>`;
           return html`<div class="grid cols-2">${rows.map((t) => html`<div class="card">
             <h3><span>${t.name}</span><span class="badge">${t.memberCount} member${t.memberCount === 1 ? '' : 's'}</span></h3>

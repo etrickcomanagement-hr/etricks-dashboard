@@ -215,7 +215,7 @@
           <div class="people">${state.list.map((e) => html`<label class="${full(e) ? 'full' : ''}"><input type="checkbox" data-pid="${e.id}" ${state.picked.has(e.id) ? E.raw('checked') : ''} ${full(e) ? E.raw('disabled') : ''}>
             <span><b>${e.name}</b> <span class="muted small">${e.empCode || ''}</span><span class="muted small"> · ${e.teamName || 'No team'}</span>
               ${e.otherClients ? html`<span class="muted small"> · works for ${e.otherClients} other client${e.otherClients === 1 ? '' : 's'}${full(e) ? ' (the most one person can have)' : ''}</span>` : ''}</span>
-            ${e.role === 'Team leader' ? html`<span class="badge ok" style="margin-left:auto">Team leader</span>` : html`<span class="badge" style="margin-left:auto">Member</span>`}</label>`)}</div>
+            ${e.accountNo ? html`<span class="badge info" style="margin-left:auto" title="This person's section in the client's portal">Account ${e.accountNo}</span>` : ''}${e.role === 'Team leader' ? html`<span class="badge ok" style="${e.accountNo ? '' : 'margin-left:auto'}">Team leader</span>` : html`<span class="badge" style="${e.accountNo ? '' : 'margin-left:auto'}">Member</span>`}</label>`)}</div>
           <div class="small warnbox" hidden></div>`
           : html`<div class="muted">${state.note}</div>`}`);
       count();
@@ -525,7 +525,8 @@
   E.page({
     id: 'portal-sales', title: 'Sales', icon: '▦', roles: CLIENT, order: 1,
     async render(el) {
-      const load = async (from, to) => E.get(`/api/portal/sales${E.qs({ from, to })}`);
+      let account = 'all'; // the section on screen: every account together, or one "Account N"
+      const load = async (from, to) => E.get(`/api/portal/sales${E.qs({ from, to, account })}`);
       const block = (c, many) => {
         const max = Math.max(1, ...c.chart.map((x) => x.sales));
         const cur = c.currency;
@@ -548,6 +549,7 @@
       const draw = async (from, to) => {
         const d = await load(from, to);
         E.mount(el, html`${E.pageHead('Your sales', `Client ${d.username} · ${d.currency} · updated daily by eTricks`, html`<button class="btn" data-act="refresh">↻ Refresh</button>`)}
+          ${d.accounts.length > 1 ? html`<div class="tabs sheetabs"><button type="button" class="${account === 'all' ? 'on active' : ''}" data-sales-acc="all">All accounts</button>${d.accounts.map((a) => html`<button type="button" class="${String(account) === String(a.no) ? 'on active' : ''}" data-sales-acc="${a.no}">${a.label}</button>`)}</div>` : ''}
           <form class="filters" id="range" style="margin-bottom:18px">${E.field({ name: 'from', label: 'From', type: 'date', value: d.from })}${E.field({ name: 'to', label: 'To', type: 'date', value: d.to })}</form>
           ${d.converted ? html`<p class="muted small" style="margin:-6px 0 16px">All figures are in ${CUR_LABEL[d.currency] || d.currency}. An update written in another currency is converted with the exchange rates of the day.</p>` : ''}
           ${d.currencies.length ? d.currencies.map((c) => block(c, false)) : html`<div class="card empty">Nothing has been reported yet. Your sales appear here as soon as the team adds the first update.</div>`}`);
@@ -555,10 +557,13 @@
       };
       const current = () => { const f = E.$('#range', el) ? E.readForm(E.$('#range', el)) : {}; return [f.from, f.to]; };
       E.actions(el, { refresh: () => draw(...current()) });
+      if (el._accClick) el.removeEventListener('click', el._accClick); // this page can be opened many times: keep one listener
+      el._accClick = (ev) => { const t = ev.target.closest('[data-sales-acc]'); if (!t) return; account = t.dataset.salesAcc === 'all' ? 'all' : Number(t.dataset.salesAcc); draw(...current()).catch((ex) => E.toast(ex.message, 'bad')); };
+      el.addEventListener('click', el._accClick);
       await draw();
       let seen = '';
       const timer = setInterval(async () => {
-        if (!el.isConnected || location.hash !== '#/portal-sales') { clearInterval(timer); return; }
+        if (!el.isConnected || location.hash !== '#/portal-sales') { clearInterval(timer); el.removeEventListener('click', el._accClick); return; }
         if (document.querySelector('.overlay') || el.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
         try {
           const d = await load(...current());

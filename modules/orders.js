@@ -433,7 +433,7 @@
           <p class="muted small">The next update replaces this one. ${state.totalRows ? '' : 'There is nothing to send yet: add rows first.'}</p>`,
         onSubmit: async (v, { close }) => {
           const r = await E.post('/api/orders/publish', { clientId: state.clientId });
-          close(); E.toast(`Sent to ${r.username}: ${r.rows} row${r.rows === 1 ? '' : 's'}`);
+          close(); E.toast(`Sent to ${r.username} (Account ${r.account}): ${r.rows} row${r.rows === 1 ? '' : 's'}`);
           await refreshPub();
         },
       });
@@ -631,24 +631,32 @@
     id: 'portal-sheet', title: 'Daily Sheet', icon: '▤', roles: ['client'], order: 4,
     async render(el) {
       let stamp = null;
-      const month = {}; // chosen month of each sheet
+      const month = {}; // chosen month of each account's sheet
       let data = { sheets: [] };
-      const block = (sh, i) => {
+      let active = null; // the account (section) on screen
+      const block = (sh) => {
         const months = [...new Set(sh.rows.map((r) => r.date.slice(0, 7)))].sort().reverse();
-        const cur = month[i] && months.includes(month[i]) ? month[i] : months[0];
-        month[i] = cur;
+        const cur = month[sh.account] && months.includes(month[sh.account]) ? month[sh.account] : months[0];
+        month[sh.account] = cur;
         const rows = sh.rows.filter((r) => r.date.slice(0, 7) === cur);
         const by = Object.entries(sh.totals || {});
         return html`<div class="card" style="margin-bottom:18px">
           <div class="row" style="justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0">${sh.title}</h3>
-            <span class="row small muted" style="gap:8px">Month <select data-month="${i}" style="min-width:150px">${months.map((m) => html`<option value="${m}" ${m === cur ? E.raw('selected') : ''}>${monthName(m)}</option>`)}</select> · updated ${fmt.dateTime(sh.publishedAt)}</span></div>
+            <span class="row small muted" style="gap:8px">Month <select data-month="${sh.account}" style="min-width:150px">${months.map((m) => html`<option value="${m}" ${m === cur ? E.raw('selected') : ''}>${monthName(m)}</option>`)}</select> · updated ${fmt.dateTime(sh.publishedAt)}</span></div>
           ${by.map(([c, t]) => html`<div class="muted small" style="margin:12px 0 6px"><b>${CUR_LABEL[c] || c}</b> (all months)</div><div class="stats" style="margin:0">${E.stat('Qty', fmt.num(t.orders))}${E.stat('Ali Exp Price', moneyIn(t.investment, c))}${E.stat('You Earned', moneyIn(t.revenue, c), { cls: 'accent' })}${E.stat('Net Profit', moneyIn(t.profit, c), { cls: t.profit < 0 ? 'bad' : 'accent' })}</div>`)}
           <div style="margin-top:14px">${sheetTable({ columns: sh.columns, rows, title: cur ? `Profit Sheet ${monthName(cur)}` : 'Profit Sheet', empty: 'No rows in this month.' })}</div></div>`;
       };
-      const paint = () => E.mount(E.$('#csheet', el), data.sheets.length ? html`${data.sheets.map(block)}` : html`<div class="card empty">Nothing has been sent to you yet. When the team sends your sheet it appears here.</div>`);
+      // One tab per account ("Account 1", "Account 2" ...): each person who works for you has a section of their own, all in this one portal.
+      const paint = () => {
+        const sheets = data.sheets;
+        if (!sheets.length) { E.mount(E.$('#csheet', el), html`<div class="card empty">Nothing has been sent to you yet. When the team sends your sheet it appears here.</div>`); return; }
+        if (!sheets.some((s) => s.account === active)) active = sheets[0].account;
+        E.mount(E.$('#csheet', el), html`${sheets.length > 1 ? html`<div class="tabs sheetabs">${sheets.map((s) => html`<button type="button" class="${s.account === active ? 'on active' : ''}" data-acc="${s.account}">${s.title}</button>`)}</div>` : ''}${block(sheets.find((s) => s.account === active))}`);
+      };
       const draw = async () => { data = await E.get('/api/portal/sheet'); paint(); };
       E.mount(el, html`${E.pageHead('Daily sheet', 'The sheet eTricks keeps for you, exactly as the team sent it. It updates here by itself when the team sends a new version.')}<div id="csheet"></div>`);
       E.$('#csheet', el).addEventListener('change', (ev) => { const s = ev.target.closest('[data-month]'); if (!s) return; month[s.dataset.month] = s.value; paint(); });
+      E.$('#csheet', el).addEventListener('click', (ev) => { const t = ev.target.closest('[data-acc]'); if (!t) return; active = Number(t.dataset.acc); paint(); });
       stamp = (await E.get('/api/portal/sheet/stamp')).stamp;
       await draw();
       keepFresh('portal-sheet', async () => { try { const n = (await E.get('/api/portal/sheet/stamp')).stamp; if (n !== stamp) { stamp = n; await draw(); } } catch { /* try again next time */ } }, 10000);
