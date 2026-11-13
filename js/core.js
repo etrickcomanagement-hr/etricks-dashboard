@@ -14,21 +14,64 @@
   E.$$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
   // ---------- API ----------
-  E.api = async (method, url, body) => {
-    const res = await fetch(url, {
-      method, headers: { 'Content-Type': 'application/json', 'X-Etricks': '1' }, body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    let data = {};
-    try { data = await res.json(); } catch { /* empty body */ }
-    if (!res.ok) {
-      if (res.status === 401 && E.user && !url.startsWith('/api/auth/')) { E.user = null; E.toast('Your session has ended. Please sign in again.', 'bad'); E.boot(); }
-      // the access password was changed (or the browser forgot it): back to the password page
-      // (not for the calls the start-up page makes itself: they would start it again and again)
-      if (res.status === 403 && /Access password required/.test(data.error || '') && !E.user && E.boot && !url.startsWith('/api/public/') && !url.startsWith('/api/gate')) E.boot();
-      throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
-    }
-    return data;
+  // The connection to the server. A short break (the server restarting, a bad moment on the mobile network) must not show as a
+  // blank or broken screen: reading calls are tried again a few times, every call has a time limit, and the screen says so.
+  E.net = { fails: 0, listeners: [] };
+  const netChanged = (ok) => {
+    const before = E.net.fails;
+    E.net.fails = ok ? 0 : E.net.fails + 1;
+    if ((before >= 2) !== (E.net.fails >= 2)) for (const f of E.net.listeners) { try { f(E.net.fails >= 2); } catch { /* a listener must never break the call */ } }
   };
+  // Background refreshes use this: while the server struggles they thin out by themselves (and come back when it answers again).
+  E.shouldPoll = () => E.net.fails < 3 || Math.random() < 1 / (E.net.fails - 1);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const TRANSIENT = new Set([502, 503, 504]);
+  E.api = async (method, url, body) => {
+    const retries = method === 'GET' ? 3 : 0; // only reading is repeated: saving twice could save twice
+    for (let attempt = 0; ; attempt++) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), url.includes('/chat') && method === 'POST' ? 90000 : 30000);
+      let res;
+      try {
+        res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'X-Etricks': '1' }, body: body === undefined ? undefined : JSON.stringify(body), signal: ctl.signal });
+      } catch (ex) {
+        clearTimeout(timer);
+        netChanged(false);
+        if (attempt < retries) { await wait([700, 1800, 4000][attempt]); continue; }
+        throw Object.assign(new Error(ex.name === 'AbortError' ? 'The server is taking too long to answer. Please try again.' : 'Cannot reach the server. Check your internet and try again.'), { status: 0, network: true });
+      }
+      clearTimeout(timer);
+      if (TRANSIENT.has(res.status)) {
+        netChanged(false);
+        if (attempt < retries) { await wait([700, 1800, 4000][attempt]); continue; }
+      } else netChanged(true);
+      let data = {};
+      try { data = await res.json(); } catch { /* empty body */ }
+      if (!res.ok) {
+        if (res.status === 401 && E.user && !url.startsWith('/api/auth/')) { E.user = null; E.toast('Your session has ended. Please sign in again.', 'bad'); E.boot(); }
+        // the access password was changed (or the browser forgot it): back to the password page
+        // (not for the calls the start-up page makes itself: they would start it again and again)
+        if (res.status === 403 && /Access password required/.test(data.error || '') && !E.user && E.boot && !url.startsWith('/api/public/') && !url.startsWith('/api/gate')) E.boot();
+        throw Object.assign(new Error(data.error || (TRANSIENT.has(res.status) ? 'The server is busy for a moment. Please try again.' : `Request failed (${res.status})`)), { status: res.status });
+      }
+      return data;
+    }
+  };
+  // Tell the server when a screen failed, so a "blank page" is seen and can be fixed (the administrator sees them in Settings).
+  const sentErrors = new Set();
+  E.report = (message, where) => {
+    try {
+      const key = `${where}|${message}`;
+      if (sentErrors.has(key) || sentErrors.size >= 5) return;
+      sentErrors.add(key);
+      fetch('/api/public/client-error', {
+        method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', 'X-Etricks': '1' },
+        body: JSON.stringify({ message: String(message || '').slice(0, 300), where: String(where || '').slice(0, 80), page: location.hash.slice(0, 60), role: E.user ? E.user.role : '', agent: navigator.userAgent.slice(0, 120) }),
+      }).catch(() => {});
+    } catch { /* reporting must never cause a problem */ }
+  };
+  window.addEventListener('error', (e) => E.report(e.message, `${(e.filename || '').split('/').pop()}:${e.lineno}`));
+  window.addEventListener('unhandledrejection', (e) => { const r = e.reason; if (r && r.network) return; E.report(r && r.message ? r.message : String(r), 'promise'); });
   E.get = (url) => E.api('GET', url);
   E.post = (url, body = {}) => E.api('POST', url, body);
   E.put = (url, body = {}) => E.api('PUT', url, body);

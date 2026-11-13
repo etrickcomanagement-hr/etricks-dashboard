@@ -29,7 +29,8 @@
   E.page({
     id: 'settings', title: 'Settings & Backups', icon: '⚙', roles: ['admin'], group: 'Administration', order: 50,
     async render(el) {
-      const [s, backups, mods, gate, full] = await Promise.all([E.get('/api/settings'), E.get('/api/backups'), E.get('/api/modules'), E.get('/api/gate/status'), E.get('/api/backups/full')]);
+      const [s, backups, mods, gate, full, health] = await Promise.all([E.get('/api/settings'), E.get('/api/backups'), E.get('/api/modules'), E.get('/api/gate/status'), E.get('/api/backups/full'), E.get('/api/metrics').catch(() => null)]);
+      const upFor = (n) => (n >= 86400 ? `${Math.floor(n / 86400)} d ${Math.floor((n % 86400) / 3600)} h` : n >= 3600 ? `${Math.floor(n / 3600)} h ${Math.floor((n % 3600) / 60)} min` : `${Math.floor(n / 60)} min`);
       const size = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
       E.mount(el, html`${E.pageHead('Settings & backups', 'Company preferences, security, data safety and modules.')}
         <div class="grid cols-2">
@@ -68,6 +69,12 @@
               ${E.table([{ label: 'Backup', render: (b) => html`<span class="small">${b.name}</span>` }, { label: 'Size', render: (b) => size(b.size) }, { label: 'Created', render: (b) => fmt.dateTime(b.createdAt) },
                 { label: '', class: 'right', render: (b) => html`<a class="btn sm" href="/api/backups/${b.name}/download">Download</a>` }], backups.slice(0, 8), 'No backups yet.')}</div></div>
         </div>
+        ${health ? html`<div class="card" style="margin-top:14px"><h3>Server health <button class="btn sm" id="healthReset">Start counting again</button></h3>
+          <p class="muted small">What the server saw since it last started (${upFor(health.uptimeSeconds)} ago). If somebody says "it was slow" or "the page was blank", this is where to look. A request slower than ${health.slowLimitMs / 1000} seconds is also written to the server log.</p>
+          <div class="stats">${E.stat('Requests', fmt.num(health.requests))}${E.stat('Failed', fmt.num(health.failed), { cls: health.failed > health.requests * 0.05 ? 'bad' : '' })}${E.stat('Slow requests', fmt.num(health.slowRequests), { cls: health.slowRequests ? 'bad' : 'accent' })}
+            ${E.stat('Server was stuck (worst)', `${health.eventLoop.maxMs} ms`, { cls: health.eventLoop.maxMs > 500 ? 'bad' : 'accent', sub: `usually ${health.eventLoop.p99Ms} ms` })}${E.stat('Memory', `${health.memoryMb.rss} MB`)}${E.stat('Screens that failed in a browser', fmt.num(health.browserErrors.count), { cls: health.browserErrors.count ? 'bad' : 'accent' })}</div>
+          ${E.table([{ label: 'Slowest in total', render: (r) => html`<span class="small">${r.route}</span>` }, { label: 'Calls', class: 'num', render: (r) => fmt.num(r.calls) }, { label: 'Average', class: 'num', render: (r) => `${r.avgMs} ms` }, { label: '95 of 100 are faster than', class: 'num', render: (r) => `${r.p95Ms} ms` }, { label: 'Slowest', class: 'num', render: (r) => `${r.maxMs} ms` }, { label: 'Errors', class: 'num', render: (r) => (r.serverErrors ? html`<span class="neg">${r.serverErrors}</span>` : r.errors) }], health.routes.slice(0, 6))}
+          ${health.browserErrors.recent.length ? html`<h3 style="margin:16px 0 6px">Problems reported by the website itself</h3>${E.table([{ label: 'When', render: (r) => fmt.dateTime(r.at) }, { label: 'Who', render: (r) => r.role || 'visitor' }, { label: 'Screen', render: (r) => html`<span class="small">${r.page} ${r.where}</span>` }, { label: 'What', class: 'wrap', render: (r) => html`<span class="small">${r.message}</span>` }, { label: 'Browser', class: 'wrap', render: (r) => html`<span class="muted small">${r.agent}</span>` }], health.browserErrors.recent)}` : ''}</div>` : ''}
         <div class="card" style="margin-top:14px"><h3>Modules</h3><p class="muted small">Switch optional features on or off. New modules (payroll, CRM, recruitment…) appear here automatically once added to the system.</p>
           ${E.table([{ label: 'Module', render: (m) => html`<b>${m.name}</b><div class="muted small">${m.description}</div>` },
             { label: 'Status', render: (m) => (m.core ? html`<span class="badge">Core</span>` : E.badge(m.enabled ? 'active' : 'inactive')) },
@@ -86,6 +93,7 @@
           E.toast('Settings saved');
         } catch (ex) { E.toast(ex.message, 'bad'); }
       };
+      const hr = E.$('#healthReset', el); if (hr) hr.onclick = async () => { await E.post('/api/metrics/reset'); E.toast('Counting again from now'); E.pages.find((p) => p.id === 'settings').render(el); };
       E.$('#backupNow', el).onclick = async () => { try { await E.post('/api/backups'); E.toast('Backup created'); E.pages.find((p) => p.id === 'settings').render(el); } catch (ex) { E.toast(ex.message, 'bad'); } };
       const redraw = () => { E.pages.find((p) => p.id === 'settings').render(el); if (E.refreshBackupBar) E.refreshBackupBar(); };
       E.$('#fullNow', el).onclick = async (ev) => {

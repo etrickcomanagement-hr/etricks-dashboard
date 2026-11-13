@@ -171,6 +171,7 @@
 
   async function pollNotifications() {
     if (document.hidden && notifLastId !== null) return;
+    if (!E.shouldPoll()) return;
     try {
       const d = await E.get('/api/notifications?limit=30');
       const fresh = notifLastId === null ? [] : d.items.filter((n) => n.id > notifLastId && !n.readAt);
@@ -295,7 +296,7 @@
   }
   async function pollAlerts() {
     try {
-      if (!E.user) return;
+      if (!E.user || !E.shouldPoll()) return;
       if (E.user.role === 'client') {
         const s = await E.get('/api/portal/summary');
         setNavBadge('portal-alerts', s.alert); setNavBadge('portal-chat', s.inquiry);
@@ -404,6 +405,7 @@
       </aside>
       <div>
         <div class="topbar"><button class="btn sm" id="burger" aria-label="Menu">☰</button>${E.logo()}<button class="btn sm bell" id="bell2" type="button" aria-label="Notifications">🔔<span class="bell-count" hidden></span></button></div>
+        <div id="netBar" hidden></div>
         <div id="alertBar" hidden></div>
         <div id="backupBar" hidden></div>
         <div id="pushBanner"></div>
@@ -413,6 +415,7 @@
     E.$('#burger').onclick = () => E.$('#side').classList.toggle('open');
     E.$('#bell').onclick = openNotifications;
     E.$('#bell2').onclick = openNotifications;
+    E.net.listeners = [(poor) => { const el = E.$('#netBar'); if (!el) return; el.hidden = !poor; if (poor) E.mount(el, html`<div class="netbar">⚠ The connection is weak or the server is busy. Retrying by itself…</div>`); }];
     stopNotifications();
     pollNotifications();
     swRegistration().then(syncPush).catch(() => {}).finally(renderPushBanner);
@@ -430,7 +433,11 @@
       const view = E.$('#view');
       view._acts = {}; // drop click handlers from the previous page
       E.mount(view, E.skeleton());
-      try { await page.render(view); } catch (ex) { E.mount(view, html`<div class="error">${ex.message}</div>`); }
+      try { await page.render(view); } catch (ex) {
+        if (!ex.network) E.report(ex.message, `page ${page.id}`);
+        E.mount(view, html`<div class="error"><b>${ex.network ? 'The connection was lost.' : 'This screen could not be shown.'}</b> ${ex.message}<div style="margin-top:10px"><button class="btn primary" id="retryPage">Try again</button></div></div>`);
+        const b = E.$('#retryPage'); if (b) b.onclick = () => go();
+      }
     };
     if (routeHandler) window.removeEventListener('hashchange', routeHandler);
     routeHandler = go;
@@ -458,7 +465,8 @@
       app.onclick = null;
       showShell();
     } catch (ex) {
-      const unreachable = [502, 503, 504].includes(ex.status) || /Failed to fetch|NetworkError|Load failed/i.test(ex.message);
+      const unreachable = ex.network || [502, 503, 504].includes(ex.status) || /Failed to fetch|NetworkError|Load failed/i.test(ex.message);
+      if (!unreachable) E.report(ex.message, 'start-up');
       E.mount(app, html`<div class="boot"><div class="card" style="max-width:520px;margin:16px">
         <h3>${unreachable ? 'Cannot reach the server' : 'Something went wrong'}</h3>
         <p>${unreachable ? 'The website is running, but the server behind it did not answer. Please try again in a minute.' : ex.message}</p>

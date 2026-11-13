@@ -154,7 +154,7 @@
 
     box.addEventListener('click', (e) => { const c = e.target.closest('[data-q]'); if (c) { ta.value = c.dataset.q; ta.focus(); } });
     const destroy = () => { clearInterval(timer); timer = null; stopRecording(false); setPending(null); };
-    timer = setInterval(() => { if (!active()) destroy(); else pull(); }, every);
+    timer = setInterval(() => { if (!active()) destroy(); else if (E.shouldPoll()) pull(); }, every);
     pull();
     return { destroy, pull, focus: () => ta.focus() };
   }
@@ -187,7 +187,7 @@
   const freshTimers = {};
   const keepFresh = (id, refresh, ms) => {
     clearInterval(freshTimers[id]);
-    const t = freshTimers[id] = setInterval(() => { if (location.hash !== `#/${id}` || !document.getElementById('view')) clearInterval(t); else refresh(true); }, ms);
+    const t = freshTimers[id] = setInterval(() => { if (location.hash !== `#/${id}` || !document.getElementById('view')) clearInterval(t); else if (E.shouldPoll()) refresh(true); }, ms);
   };
 
   // ====================================================================================

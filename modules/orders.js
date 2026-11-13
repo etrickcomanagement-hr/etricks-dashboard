@@ -29,7 +29,7 @@
   const freshTimers = {};
   const keepFresh = (id, refresh, ms) => {
     clearInterval(freshTimers[id]);
-    const t = freshTimers[id] = setInterval(() => { if (location.hash !== `#/${id}` || !document.getElementById('view')) clearInterval(t); else refresh(true); }, ms);
+    const t = freshTimers[id] = setInterval(() => { if (location.hash !== `#/${id}` || !document.getElementById('view')) clearInterval(t); else if (E.shouldPoll()) refresh(true); }, ms);
   };
 
   // ---------------- a safe calculator for the number cells: 12*3.5+4, =(100-20)/4 ... ----------------
@@ -573,7 +573,7 @@
         : html`<div class="pub" style="margin-bottom:8px">Client <b>${name}</b> has not been sent this sheet yet.</div>`) : ''}
         ${totalsStats(r.totals)}${sheetTable({ columns: r.columns, rows: byDate(r.rows), team: true, title: titleFor(r.from, r.to), empty: 'No rows in this period.' })}`);
     };
-    const timer = setInterval(pull, 8000);
+    const timer = setInterval(() => { if (E.shouldPoll()) pull(); }, 8000);
     E.$('#vtabs', form).addEventListener('click', (ev) => { const b = ev.target.closest('[data-tab]'); if (!b) return; key = b.dataset.tab === 'general' ? 'general' : Number(b.dataset.tab); sig = ''; pull(); });
     E.$('#vrange', form).addEventListener('change', () => { const f = E.readForm(form); if (f.from && f.to && f.from <= f.to) { from = f.from; to = f.to; sig = ''; pull(); } });
     pull();
