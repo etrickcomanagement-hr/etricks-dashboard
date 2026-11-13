@@ -201,61 +201,72 @@
     });
   }
 
-  // "Select team members": the leader and members who work for a client. Only the people ticked here (and the head of the
-  // department and the admin) can see that client, its updates, chat and alerts.
+  // "Select team members": the leaders and members who work for a client. Only the people ticked here (and the head of the client's
+  // department and the admin) can see that client, its updates, chat and alerts. They can come from ANY department or team.
   function mountPicker(box, initial) {
-    const state = { list: [], picked: new Set(initial || []), note: 'Select the department first.' };
+    const state = { list: [], picked: new Set(initial || []), note: 'Loading the people…', dept: '', q: '' };
     let seq = 0;
     // someone who already works for the most clients one person can have cannot be given another
     const full = (e) => e.limit && e.otherClients >= e.limit && !state.picked.has(e.id);
-    const draw = () => {
-      const n = state.list.length;
-      E.mount(box, html`<div class="muted small" style="margin-bottom:8px">Tick the people who work for this client. Only they, the head of the department and you can see its updates, chat and alerts.</div>
-        ${n ? html`<div class="row" style="margin-bottom:8px;gap:8px"><button type="button" class="btn sm" data-pick="all">Select all</button><button type="button" class="btn sm" data-pick="none">Clear</button><span class="muted small cnt"></span></div>
-          <div class="people">${state.list.map((e) => html`<label class="${full(e) ? 'full' : ''}"><input type="checkbox" data-pid="${e.id}" ${state.picked.has(e.id) ? E.raw('checked') : ''} ${full(e) ? E.raw('disabled') : ''}>
-            <span><b>${e.name}</b> <span class="muted small">${e.empCode || ''}</span><span class="muted small"> · ${e.teamName || 'No team'}</span>
-              ${e.otherClients ? html`<span class="muted small"> · works for ${e.otherClients} other client${e.otherClients === 1 ? '' : 's'}${full(e) ? ' (the most one person can have)' : ''}</span>` : ''}</span>
-            ${e.accountNo ? html`<span class="badge info" style="margin-left:auto" title="This person's section in the client's portal">Account ${e.accountNo}</span>` : ''}${e.role === 'Team leader' ? html`<span class="badge ok" style="${e.accountNo ? '' : 'margin-left:auto'}">Team leader</span>` : html`<span class="badge" style="${e.accountNo ? '' : 'margin-left:auto'}">Member</span>`}</label>`)}</div>
-          <div class="small warnbox" hidden></div>`
-          : html`<div class="muted">${state.note}</div>`}`);
-      count();
-    };
+    const shown = () => state.list.filter((e) => (!state.dept || String(e.departmentId) === state.dept)
+      && (!state.q || `${e.name} ${e.empCode || ''} ${e.teamName || ''} ${e.departmentName || ''}`.toLowerCase().includes(state.q)));
     const count = () => {
       const c = E.$('.cnt', box); if (!c) return;
-      c.textContent = `${state.picked.size} of ${state.list.length} selected`;
+      c.textContent = `${state.picked.size} selected · ${shown().length} of ${state.list.length} shown`;
       const w = E.$('.warnbox', box);
       w.hidden = state.picked.size > 0;
       w.textContent = 'Nobody is selected, so only the head of the department and you will see this client.';
     };
+    // the people (re-drawn when the filter changes; the filter itself is drawn once, so typing is never interrupted)
+    const drawList = () => {
+      const list = shown();
+      E.mount(E.$('.peoplebox', box), list.length ? html`<div class="people">${list.map((e) => html`<label class="${full(e) ? 'full' : ''}"><input type="checkbox" data-pid="${e.id}" ${state.picked.has(e.id) ? E.raw('checked') : ''} ${full(e) ? E.raw('disabled') : ''}>
+            <span><b>${e.name}</b> <span class="muted small">${e.empCode || ''}</span><span class="muted small"> · ${e.departmentName || ''} · ${e.teamName || 'No team'}</span>
+              ${e.otherClients ? html`<span class="muted small"> · works for ${e.otherClients} other client${e.otherClients === 1 ? '' : 's'}${full(e) ? ' (the most one person can have)' : ''}</span>` : ''}</span>
+            ${e.accountNo ? html`<span class="badge info" style="margin-left:auto" title="This person's section in the client's portal">Account ${e.accountNo}</span>` : ''}${e.role === 'Team leader' ? html`<span class="badge ok" style="${e.accountNo ? '' : 'margin-left:auto'}">Team leader</span>` : html`<span class="badge" style="${e.accountNo ? '' : 'margin-left:auto'}">Member</span>`}</label>`)}</div>`
+        : html`<div class="muted">${state.list.length ? 'Nobody matches this filter.' : state.note}</div>`);
+      count();
+    };
+    const drawDepts = () => {
+      const seen = new Map();
+      for (const e of state.list) if (!seen.has(e.departmentId)) seen.set(e.departmentId, e.departmentName);
+      const sel = E.$('[data-f=dept]', box);
+      E.mount(sel, html`<option value="">All departments</option>${[...seen].map(([id, name]) => html`<option value="${id}" ${String(id) === state.dept ? E.raw('selected') : ''}>${name}</option>`)}`);
+    };
+    E.mount(box, html`<div class="muted small" style="margin-bottom:8px">Tick the people who work for this client. They can come from <b>any department or team</b>. Only they, the head of the client's department and you can see its updates, chat and alerts.</div>
+      <div class="row" style="margin-bottom:8px;gap:8px;flex-wrap:wrap;align-items:center"><select data-f="dept" aria-label="Department" style="min-width:170px"></select><input data-f="q" placeholder="Search name, code or team…" style="min-width:190px" autocomplete="off">
+        <button type="button" class="btn sm" data-pick="all">Select all shown</button><button type="button" class="btn sm" data-pick="none">Clear all</button><span class="muted small cnt"></span></div>
+      <div class="peoplebox"></div><div class="small warnbox" hidden></div>`);
+    drawDepts(); drawList();
     box.addEventListener('change', (ev) => {
+      const f = ev.target.closest('[data-f=dept]');
+      if (f) { state.dept = f.value; drawList(); return; }
       const cb = ev.target.closest('input[data-pid]'); if (!cb) return;
       const id = Number(cb.dataset.pid);
       if (cb.checked) state.picked.add(id); else state.picked.delete(id);
       count();
     });
+    box.addEventListener('input', (ev) => { const q = ev.target.closest('[data-f=q]'); if (q) { state.q = q.value.trim().toLowerCase(); drawList(); } });
     box.addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-pick]'); if (!b) return;
-      state.picked = b.dataset.pick === 'all' ? new Set(state.list.filter((e) => !(e.limit && e.otherClients >= e.limit)).map((e) => e.id)) : new Set();
-      for (const cb of box.querySelectorAll('input[data-pid]')) cb.checked = state.picked.has(Number(cb.dataset.pid));
-      count();
+      if (b.dataset.pick === 'all') for (const e of shown()) { if (!(e.limit && e.otherClients >= e.limit)) state.picked.add(e.id); } else state.picked = new Set();
+      drawList();
     });
     const show = (list, note) => {
       state.list = list; state.note = note;
       const ok = new Set(list.map((e) => e.id));
-      state.picked = new Set([...state.picked].filter((id) => ok.has(id))); // a person who is not on the chosen team drops out
-      draw();
+      state.picked = new Set([...state.picked].filter((id) => ok.has(id))); // a person who is no longer active drops out
+      drawDepts(); drawList();
     };
-    draw();
     return {
       ids: () => [...state.picked],
       preselect: (ids) => { seq++; state.picked = new Set(ids); },
-      set: (list) => show(list, 'This team has no members yet. Add people to it first.'),
-      async load(departmentId, teamId) {
+      set: (list) => show(list, 'There are no team leaders or members yet. Add people to a team first.'),
+      async load() {
         const mine = ++seq;
-        if (!departmentId) return show([], 'Select the department first.');
         try {
-          const list = await E.get(`/api/clients/candidates?departmentId=${departmentId}${teamId ? `&teamId=${teamId}` : ''}`);
-          if (mine === seq) show(list, 'This team has no members yet. Add people to it first.');
+          const list = await E.get('/api/clients/candidates');
+          if (mine === seq) show(list, 'There are no team leaders or members yet. Add people to a team first.');
         } catch (ex) { if (mine === seq) show([], ex.message); }
       },
     };
@@ -266,7 +277,7 @@
     const r = await E.get(`/api/clients/${c.id}/staff`);
     const { form } = E.modal({
       title: `Team members of ${c.username}`, submit: 'Save', wide: true,
-      body: html`<p class="muted">${c.teamName ? html`Team: <b>${c.teamName}</b>.` : html`This client is not tied to one team, so you can choose from the whole department.`} A person you remove loses access to the client's chat and updates at once.</p><div id="peopleBox"></div>`,
+      body: html`<p class="muted">Choose the people who work for this client, from any department or team. A person you remove loses access to the client's chat and updates at once.</p><div id="peopleBox"></div>`,
       onSubmit: async (v, { close }) => {
         const res = await E.put(`/api/clients/${c.id}/staff`, { employeeIds: picker.ids() });
         E.toast(`Saved: ${res.total} ${res.total === 1 ? 'person' : 'people'} on this client`); close(); onSaved();
@@ -289,7 +300,7 @@
         ${existing ? E.field({ name: 'status', label: 'Status', type: 'select', value: c.status, options: [{ value: 'active', label: 'Active' }, { value: 'disabled', label: 'Disabled (cannot sign in)' }] })
           : E.field({ name: 'password', label: 'Portal password', type: 'password', required: true, help: 'At least 8 characters. You give it to the client.', attrs: 'autocomplete="new-password"' })}
         ${E.field({ name: 'departmentId', label: 'Department', type: 'select', required: true, value: c.departmentId ?? '', options: [{ value: '', label: 'Select…' }, ...E.idOptions(depts)] })}
-        ${E.field({ name: 'teamId', label: 'Team that works for this client', type: 'select', value: c.teamId ?? '', options: teamOpts(c.departmentId), help: 'Pick the team, then choose below exactly which of its people work for this client.' })}
+        ${E.field({ name: 'teamId', label: 'Team that works for this client', type: 'select', value: c.teamId ?? '', options: teamOpts(c.departmentId), help: 'The client\'s own team (optional). The people who work for it are chosen below, from any team or department.' })}
         ${E.field({ name: 'currency', label: 'Currency shown to this client', type: 'select', required: true, value: c.currency || defaultCur(), options: CUR_OPTS, help: 'The client sees all its sales in this currency. An update written in another currency is converted with the exchange rates in Settings.' })}
         <div class="sect">Select team members</div>
         <div class="full" id="peopleBox"></div>
@@ -303,16 +314,14 @@
       onOpen: async (f) => {
         const dept = f.elements.departmentId;
         picker = mountPicker(E.$('#peopleBox', f), []);
-        const reload = () => picker.load(dept.value, f.elements.teamId.value);
-        dept.addEventListener('change', () => { E.mount(f.elements.teamId, html`${teamOpts(dept.value).map((o) => html`<option value="${o.value}">${o.label}</option>`)}`); reload(); });
-        f.elements.teamId.addEventListener('change', reload);
+        dept.addEventListener('change', () => { E.mount(f.elements.teamId, html`${teamOpts(dept.value).map((o) => html`<option value="${o.value}">${o.label}</option>`)}`); }); // the people below are not tied to it
         if (existing) {
           try {
             const r = await E.get(`/api/clients/${c.id}/staff`);
             picker.preselect(r.candidates.filter((e) => e.chosen).map((e) => e.id));
             picker.set(r.candidates);
           } catch (ex) { E.toast(ex.message, 'bad'); }
-        } else reload();
+        } else picker.load();
         const b = E.$('#showSecret', f);
         if (b) b.onclick = async () => {
           try {
